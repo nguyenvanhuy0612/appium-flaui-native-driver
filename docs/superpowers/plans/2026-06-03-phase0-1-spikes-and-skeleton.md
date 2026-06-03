@@ -1,5 +1,10 @@
 # Phase 0–1: De-risking Spikes & Skeleton — Implementation Plan
 
+> **Status: COMPLETED & SUPERSEDED (frozen, historical).** All Phase 0–1 goals (and Phases 2–5 beyond them)
+> were delivered and verified on the Windows box. This file is kept as the original plan of record. For the
+> current state see [`../../FUNCTIONS.md`](../../FUNCTIONS.md) (API/status), [`../../CHANGELOG-internal.md`](../../CHANGELOG-internal.md)
+> (what shipped), and [`../../NEXT-STEPS.md`](../../NEXT-STEPS.md) (roadmap).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Prove the three riskiest assumptions (sidecar-from-npm, FlaUI works, anti-hang works), then stand up a skeleton where the TS driver spawns the C# FlaUI sidecar and finds one element in Notepad end-to-end.
