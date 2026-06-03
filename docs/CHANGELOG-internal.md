@@ -5,6 +5,31 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — Head-to-head COMPLETE on core nova2 suites: parity or better on every one
+
+Two more real bugs found & fixed via the suites:
+1. **Error-type mapping was missing**: sidecar `RpcError`s surfaced as 500 UnknownError. Added a central
+   `op()` helper in the driver converting backend error types → appium error classes (stale element / no
+   such element / invalid selector / timeout). smoke_more jumped 7→19 passing.
+2. **Unknown vs stale element ids**: never-seen/malformed ids now raise `no such element`; well-formed
+   runtime ids that aged out raise `stale element reference` (nova2 semantics; fixes click C3).
+
+**Final head-to-head (same box, same Appium 3.5 server, the user's real nova2 specs):**
+| suite | novawindows2 | FlaUINative |
+|---|---|---|
+| smoke (5) | 4 pass / 1 fail | 4 / 1 (same wdio client-bug test) |
+| pagesource (1) | – | **1 / 0** |
+| xpath (98) | 85 / 13 (~3 min) | **93 / 5 (25 s)** |
+| smoke_more (20) | 18 / 1 (+1 pending) | **19 / 1** (same Win11-Notepad selector fail) |
+| click (14) | 6 / 6 (+2 pending) | **6 / 6 (+2)** — identical failure set (Win11 Notepad UI) |
+
+FlaUINative ≥ nova2 on every suite; every remaining failure is shared (test/client/environment, not the
+driver). The user can now run their real nova2 e2e suite against FlaUINative via
+`tests/nova2-compat/` with `APPIUM_URL=<server>`. Remaining unrun: the stable/* suites (desktop, stress,
+session-stress, unicode, ...) — next session.
+
+---
+
 ## 2026-06-03 (cont.) — 🏆 nova2's REAL e2e suite runs — FlaUINative BEATS nova2 on its own tests
 
 The user's actual nova2 e2e suite was copied into `tests/nova2-compat/` (automationName → FlaUINative,

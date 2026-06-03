@@ -13,6 +13,7 @@ import type {
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Sidecar } from './backend/sidecar.js';
+import { RpcError } from './backend/rpc-client.js';
 import {
   findOp,
   propertyCondition,
@@ -147,7 +148,7 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     // nova2-compat: optional prerun PowerShell snippet (best effort).
     const prerun = this.opts.prerun as { script?: string; command?: string } | undefined;
     if (prerun?.script || prerun?.command) {
-      await this.sidecar.client.op({ op: 'powershell', script: prerun.script ?? prerun.command ?? '' });
+      await this.op({ op: 'powershell', script: prerun.script ?? prerun.command ?? '' });
     }
     return [sessionId, caps];
   }
@@ -166,9 +167,33 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     }
   }
 
+  /** Send an op to the sidecar, converting backend error types into W3C/appium error classes
+   * (otherwise base-driver wraps everything as a 500 UnknownError). */
+  private async op<T = unknown>(o: BackendOp): Promise<T> {
+    try {
+      return await this.sidecar!.client.op<T>(o);
+    } catch (e) {
+      if (e instanceof RpcError) {
+        switch (e.type) {
+          case 'stale element reference':
+            throw new errors.StaleElementReferenceError(e.message);
+          case 'no such element':
+            throw new errors.NoSuchElementError(e.message);
+          case 'invalid selector':
+            throw new errors.InvalidSelectorError(e.message);
+          case 'timeout':
+            throw new errors.TimeoutError(e.message);
+          default:
+            throw new errors.UnknownError(e.message);
+        }
+      }
+      throw e;
+    }
+  }
+
   /** Issue a backend `find` op via the sidecar RPC and return the matched elements. */
   private readonly findViaBackend = async (op: BackendOp): Promise<FoundElement[]> => {
-    const res = await this.sidecar!.client.op<BasicProps | { elements: BasicProps[] }>(op);
+    const res = await this.op<BasicProps | { elements: BasicProps[] }>(op);
     const rows = 'elements' in res ? res.elements : [res];
     return rows.map((e) => ({
       runtimeId: e.runtimeId,
@@ -190,7 +215,7 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
       return this.findViaBackend(op);
     },
     walk: async (id, direction) => {
-      const res = await this.sidecar!.client.op<{ elements: BasicProps[] }>({ op: 'walk', id, direction });
+      const res = await this.op<{ elements: BasicProps[] }>({ op: 'walk', id, direction });
       return res.elements.map((e) => ({
         runtimeId: e.runtimeId,
         name: e.name ?? undefined,
@@ -200,7 +225,7 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
       }));
     },
     attributes: async (id, names) => {
-      const raw = await this.sidecar!.client.op<Record<string, unknown>>(attributesOp(id, names));
+      const raw = await this.op<Record<string, unknown>>(attributesOp(id, names));
       // Predicates compare page-source-style strings: booleans must read "True"/"False" (C# style).
       const out: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(raw)) {
@@ -248,7 +273,7 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     const prop = propMap[strategy];
     if (!prop) throw new Error(`unsupported strategy: ${strategy}`);
 
-    const res = await this.sidecar!.client.op<BasicProps | { elements: BasicProps[] }>(
+    const res = await this.op<BasicProps | { elements: BasicProps[] }>(
       findOp({
         startId: context ?? 'root',
         multiple: mult,
@@ -267,12 +292,12 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
 
   // ── Phase 2 command surface ──────────────────────────────────────────────────────────────
   async getPageSource(): Promise<string> {
-    const res = await this.sidecar!.client.op<{ source: string }>(sourceOp('root'));
+    const res = await this.op<{ source: string }>(sourceOp('root'));
     return res.source;
   }
 
   async getAttribute(name: string, elementId: string): Promise<string | null> {
-    const res = await this.sidecar!.client.op<Record<string, unknown>>(attributesOp(elementId, [name]));
+    const res = await this.op<Record<string, unknown>>(attributesOp(elementId, [name]));
     const v = res[name];
     return v == null ? null : String(v);
   }
@@ -280,21 +305,21 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   async click(elementId: string): Promise<void> {
     // Real pointer click at the element's center (nova2/W3C semantics). UIA Invoke stays available
     // separately as `windows: invoke`.
-    await this.sidecar!.client.op(inputOp('click', { elementId }));
+    await this.op(inputOp('click', { elementId }));
   }
 
   async setValue(text: string | string[], elementId: string): Promise<void> {
     const value = Array.isArray(text) ? text.join('') : text;
-    await this.sidecar!.client.op(actionOp(elementId, 'setValue', { value }));
+    await this.op(actionOp(elementId, 'setValue', { value }));
   }
 
   async clear(elementId: string): Promise<void> {
-    await this.sidecar!.client.op(actionOp(elementId, 'setValue', { value: '' }));
+    await this.op(actionOp(elementId, 'setValue', { value: '' }));
   }
 
   async getText(elementId: string): Promise<string> {
     // Prefer ValuePattern text (e.g. Edit/Document content); fall back to the Name property.
-    const res = await this.sidecar!.client.op<Record<string, unknown>>(attributesOp(elementId, ['Value', 'Name']));
+    const res = await this.op<Record<string, unknown>>(attributesOp(elementId, ['Value', 'Name']));
     const v = res.Value ?? res.Name;
     return v == null ? '' : String(v);
   }
@@ -309,47 +334,47 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   }
 
   async getElementRect(elementId: string): Promise<{ x: number; y: number; width: number; height: number }> {
-    const res = await this.sidecar!.client.op<{
+    const res = await this.op<{
       BoundingRectangle: { x: number; y: number; width: number; height: number } | null;
     }>(attributesOp(elementId, ['BoundingRectangle']));
     return res.BoundingRectangle ?? { x: 0, y: 0, width: 0, height: 0 };
   }
 
   async elementEnabled(elementId: string): Promise<boolean> {
-    const res = await this.sidecar!.client.op<Record<string, unknown>>(attributesOp(elementId, ['IsEnabled']));
+    const res = await this.op<Record<string, unknown>>(attributesOp(elementId, ['IsEnabled']));
     return res.IsEnabled === true;
   }
 
   async elementDisplayed(elementId: string): Promise<boolean> {
-    const res = await this.sidecar!.client.op<Record<string, unknown>>(attributesOp(elementId, ['IsOffscreen']));
+    const res = await this.op<Record<string, unknown>>(attributesOp(elementId, ['IsOffscreen']));
     return res.IsOffscreen !== true;
   }
 
   async elementSelected(elementId: string): Promise<boolean> {
     // SelectionItemPattern.IsSelected; null (pattern unsupported) reads as false.
-    const res = await this.sidecar!.client.op<Record<string, unknown>>(attributesOp(elementId, ['IsSelected']));
+    const res = await this.op<Record<string, unknown>>(attributesOp(elementId, ['IsSelected']));
     return res.IsSelected === true;
   }
 
   // ── Screenshots ──────────────────────────────────────────────────────────────────────────
   async getScreenshot(): Promise<string> {
-    const res = await this.sidecar!.client.op<{ data: string }>({ op: 'screenshot' });
+    const res = await this.op<{ data: string }>({ op: 'screenshot' });
     return res.data;
   }
 
   async getElementScreenshot(elementId: string): Promise<string> {
-    const res = await this.sidecar!.client.op<{ data: string }>({ op: 'screenshot', id: elementId });
+    const res = await this.op<{ data: string }>({ op: 'screenshot', id: elementId });
     return res.data;
   }
 
   // ── Clipboard (windows: setClipboard / getClipboard; plaintext base64, nova2-style) ───────
   async windowsCmd_setClipboard(b64?: string, b64Content?: string, contentType?: string): Promise<unknown> {
     // nova2 calls this parameter `b64Content`; accept both spellings.
-    return this.sidecar!.client.op({ op: 'clipboard', action: 'set', b64: b64 ?? b64Content, contentType });
+    return this.op({ op: 'clipboard', action: 'set', b64: b64 ?? b64Content, contentType });
   }
 
   async windowsCmd_getClipboard(contentType?: string): Promise<string> {
-    const res = await this.sidecar!.client.op<{ b64: string }>({ op: 'clipboard', action: 'get', contentType });
+    const res = await this.op<{ b64: string }>({ op: 'clipboard', action: 'get', contentType });
     return res.b64;
   }
 
@@ -397,14 +422,14 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
             y += Math.round(r.y + r.height / 2);
           }
           this.pointerPos = { x, y };
-          await this.sidecar!.client.op(inputOp('move', { x, y }));
+          await this.op(inputOp('move', { x, y }));
           break;
         }
         case 'pointerDown':
-          await this.sidecar!.client.op(inputOp('down', { button: a.button === 2 ? 'right' : 'left' }));
+          await this.op(inputOp('down', { button: a.button === 2 ? 'right' : 'left' }));
           break;
         case 'pointerUp':
-          await this.sidecar!.client.op(inputOp('up', { button: a.button === 2 ? 'right' : 'left' }));
+          await this.op(inputOp('up', { button: a.button === 2 ? 'right' : 'left' }));
           break;
         default:
           throw new Error(`unsupported pointer action: ${a.type}`);
@@ -421,10 +446,10 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
       const ch = a.value as string;
       const vk = W3C_KEY_TO_VK[ch];
       if (vk !== undefined) {
-        await this.sidecar!.client.op(inputOp('keys', { actions: [{ virtualKeyCode: vk, down: a.type === 'keyDown' }] }));
+        await this.op(inputOp('keys', { actions: [{ virtualKeyCode: vk, down: a.type === 'keyDown' }] }));
       } else if (a.type === 'keyDown') {
         // Printable characters are typed on keyDown; keyUp is a no-op (documented subset).
-        await this.sidecar!.client.op(inputOp('keys', { actions: [{ text: ch }] }));
+        await this.op(inputOp('keys', { actions: [{ text: ch }] }));
       }
     }
   }
@@ -436,7 +461,7 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
       // Scoped insecure feature (ADR-007 rev: optional convenience, NOT the backbone).
       (this as unknown as { assertFeatureEnabled?: (f: string) => void }).assertFeatureEnabled?.('power_shell');
       const a = ((args as unknown[])?.[0] ?? {}) as { script?: string; command?: string };
-      const res = await this.sidecar!.client.op<{ stdout: string; stderr: string; exitCode: number }>({
+      const res = await this.op<{ stdout: string; stderr: string; exitCode: number }>({
         op: 'powershell',
         script: a.script ?? a.command ?? '',
       });
@@ -447,11 +472,11 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
 
   // ── W3C window commands (operate on the session root window) ──────────────────────────────
   async getTitle(): Promise<string> {
-    return (await this.sidecar!.client.op<{ value: string }>({ op: 'window', action: 'title' })).value;
+    return (await this.op<{ value: string }>({ op: 'window', action: 'title' })).value;
   }
 
   async getWindowHandle(): Promise<string> {
-    return (await this.sidecar!.client.op<{ value: string }>({ op: 'window', action: 'handle' })).value;
+    return (await this.op<{ value: string }>({ op: 'window', action: 'handle' })).value;
   }
 
   async getWindowHandles(): Promise<string[]> {
@@ -459,7 +484,7 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   }
 
   async getWindowRect(): Promise<{ x: number; y: number; width: number; height: number }> {
-    return this.sidecar!.client.op({ op: 'window', action: 'rect' });
+    return this.op({ op: 'window', action: 'rect' });
   }
 
   async setWindowRect(x: number | null, y: number | null, width: number | null, height: number | null) {
@@ -468,28 +493,28 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     if (y != null) args.y = y;
     if (width != null) args.width = width;
     if (height != null) args.height = height;
-    return this.sidecar!.client.op({ op: 'window', action: 'setRect', args });
+    return this.op({ op: 'window', action: 'setRect', args });
   }
 
   async maximizeWindow() {
-    return this.sidecar!.client.op({ op: 'window', action: 'maximize' });
+    return this.op({ op: 'window', action: 'maximize' });
   }
 
   async minimizeWindow() {
-    return this.sidecar!.client.op({ op: 'window', action: 'minimize' });
+    return this.op({ op: 'window', action: 'minimize' });
   }
 
   // ── windows: app/session-level commands (nova2-compat) ────────────────────────────────────
   async windowsCmd_launchApp(): Promise<unknown> {
-    return this.sidecar!.client.op({ op: 'app', action: 'launch' });
+    return this.op({ op: 'app', action: 'launch' });
   }
 
   async windowsCmd_closeApp(): Promise<unknown> {
-    return this.sidecar!.client.op({ op: 'app', action: 'close' });
+    return this.op({ op: 'app', action: 'close' });
   }
 
   async windowsCmd_setProcessForeground(process: string): Promise<unknown> {
-    return this.sidecar!.client.op({ op: 'app', action: 'activate', process });
+    return this.op({ op: 'app', action: 'activate', process });
   }
 
   private typeDelayMs = 0;
@@ -504,7 +529,7 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   }
 
   async windowsCmd_getPageSource(elementId?: string): Promise<string> {
-    const res = await this.sidecar!.client.op<{ source: string }>(sourceOp(elementId ?? 'root'));
+    const res = await this.op<{ source: string }>(sourceOp(elementId ?? 'root'));
     return res.source;
   }
 
@@ -512,13 +537,13 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   async runWindowsAction(action: string, elementId: string, value?: unknown): Promise<unknown> {
     if (!isSupportedWindowsCommand(action)) throw new Error(`unsupported windows: command: ${action}`);
     const args = value === undefined ? {} : { value };
-    return this.sidecar!.client.op(buildWindowsCommandOp(action, elementId, args));
+    return this.op(buildWindowsCommandOp(action, elementId, args));
   }
 
   /** Shared implementation for every `windows:` INPUT command (mouse/keyboard via FlaUI.Core.Input). */
   async runWindowsInput(kind: string, args: Record<string, unknown>): Promise<unknown> {
     if (!isSupportedInputCommand(kind)) throw new Error(`unsupported windows: input command: ${kind}`);
-    return this.sidecar!.client.op(inputOp(kind as 'click' | 'hover' | 'keys' | 'scroll' | 'clickAndDrag', args));
+    return this.op(inputOp(kind as 'click' | 'hover' | 'keys' | 'scroll' | 'clickAndDrag', args));
   }
 }
 

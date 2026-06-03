@@ -344,8 +344,14 @@ public sealed class OpInterpreter
         };
     }
 
-    private AutomationElement ResolveOrThrow(string id) =>
-        _registry.TryGet(id, out var el) && el is not null ? el : throw new StaleElementException(id);
+    private AutomationElement ResolveOrThrow(string id)
+    {
+        if (_registry.TryGet(id, out var el) && el is not null) return el;
+        // Never-seen / malformed ids → "no such element"; well-formed runtime ids that aged out → "stale".
+        if (System.Text.RegularExpressions.Regex.IsMatch(id, @"^\d+(\.\d+)*$"))
+            throw new StaleElementException(id);
+        throw new ElementNotFoundException();
+    }
 
     private ConditionBase BuildCondition(JsonElement c)
     {
