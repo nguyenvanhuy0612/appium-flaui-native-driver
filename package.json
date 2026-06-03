@@ -1,6 +1,6 @@
 {
   "name": "appium-flaui-native-driver",
-  "version": "0.1.0-beta.6",
+  "version": "0.1.0-beta.7",
   "description": "Appium 3 Windows driver backed by a compiled C# FlaUI sidecar (UIA3/UIA2 + MSAA legacy).",
   "type": "module",
   "main": "build/lib/driver.js",
@@ -37,8 +37,8 @@
     "webdriverio": "^9.27.2"
   },
   "files": [
-    "build",
-    "prebuilt"
+    "build/**/*.js",
+    "prebuilt/*/FlaUiSidecar.exe"
   ],
   "dependencies": {
     "@appium/base-driver": "10.6.0",
