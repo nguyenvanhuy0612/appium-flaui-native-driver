@@ -5,6 +5,22 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — Phase A COMPLETE: getText/click/args + packaging slim (not published)
+
+- **getText** precedence (FlaUI): `TextPattern.DocumentRange.GetText` -> `ValuePattern.Value` -> `Name` ->
+  `LegacyIAccessible.Value`. Verified: Notepad Edit -> typed text; Window -> title; Button -> Name.
+- **click point**: best-effort `ScrollItem.ScrollIntoView` then `TryGetClickablePoint` (fallback rect
+  center); explicit x/y stay rect-relative; `BasicBringOnTop` focus kept.
+- **`windows:` input arg parity**: click `button|times|modifierKeys|durationMs|interClickDelayMs`; hover
+  `durationMs|modifierKeys`; scroll `amount|modifierKeys`; clickAndDrag `button|durationMs|modifierKeys`.
+  Bad button/modifier -> W3C `invalid argument`. TS unit 121, e2e 75, smoke 1.
+- **Packaging fix**: `peerDependenciesMeta.appium.optional=true` — npm 7+ was auto-installing a *second*
+  Appium server (+ sharp/express/...) into the installed driver's node_modules; the driver never imports
+  `appium`. Published tarball was already clean (no node_modules); this slims the *installed* tree.
+- All committed to git/GitHub; **NOT published to npm** (awaiting behavior sign-off). Candidate = beta.4.
+
+---
+
 ## 2026-06-03 (cont.) — Phase A: FlaUI-native full attribute/property resolution (NOT published)
 
 `getAttribute`/`getProperty`/`getAttributes` now resolve the full UIA surface the FlaUI way (no PowerShell

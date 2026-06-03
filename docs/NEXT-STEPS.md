@@ -13,11 +13,13 @@ foreground), W3C error contract, five-layer anti-hang (**frozen-app hang-injecti
 
 ---
 
-## Phase A — Function-behavior parity & correctness  ← **DONE (attribute resolver; not published)**
+## Phase A — Function-behavior parity & correctness  ← **COMPLETE (not yet published)**
 
 > ✅ getProperty/getAttribute now FlaUI-native & inspect-matching (LegacyIAccessible.*, Is*PatternAvailable,
 > pattern dot-notation, ProviderDescription/IsDialog, fixed BoundingRectangle); setValue keyboard fallback.
-> Remaining sub-items below (getText precedence, ClickablePoint, full windows: arg audit) are still open.
+> ✅ Also done: getText precedence (TextPattern->Value->Name->Legacy), click via ClickablePoint+
+> scrollIntoView, full `windows:` input arg parity (button/times/modifierKeys/durationMs/...), and a
+> packaging fix (appium peer optional → no 2nd Appium server in the install). Candidate for **beta.4**.
 
 Go function-by-function; compare exact semantics with nova2 (reference only — implement the FlaUI-idiomatic
 way, not PowerShell). The gap today is that reads expose only a flat fixed property set.
