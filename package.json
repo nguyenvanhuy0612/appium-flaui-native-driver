@@ -17,7 +17,9 @@
   "appium": {
     "driverName": "flauinative",
     "automationName": "FlaUINative",
-    "platformNames": ["Windows"],
+    "platformNames": [
+      "Windows"
+    ],
     "mainClass": "FlaUINativeDriver"
   },
   "peerDependencies": {
@@ -30,8 +32,14 @@
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"
   },
-  "files": ["build", "prebuilt"],
+  "files": [
+    "build",
+    "prebuilt"
+  ],
   "_notes": {
     "appiumDeps": "Add @appium/base-driver + @appium/types pinned to the Appium-3 line when building lib/driver.ts (Task 1.6). Versions to be reconciled against the running Appium 3 (see docs/DECISIONS.md ADR-011). Kept out of the initial install so the backend foundation verifies fast and clean on any OS."
+  },
+  "dependencies": {
+    "xpath-analyzer": "^3.0.1"
   }
 }

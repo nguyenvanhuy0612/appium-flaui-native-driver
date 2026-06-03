@@ -5,6 +5,33 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — Windows machine online + Phase 3 XPath (parallel subagents)
+
+**Windows test target connected:** `admin@172.16.10.44` (Win 10, 64-bit), SSH passwordless from the Mac.
+Found: Node 24.16, npm 11.13, **Appium 3.5.0** present; `.NET SDK` and `git` were NOT installed.
+Installed **.NET SDK 8.0.421** to the user dir via `dotnet-install` (no admin needed). Discovered the
+running Appium bundles **@appium/base-driver@10.6.0 / @appium/types@1.5.0** → pinned (ADR-011 resolved).
+Repo copied to `C:\Users\admin\flaui-driver` via `git archive` zip + scp (no git needed on the box).
+
+**First Windows build of the sidecar surfaced real errors** (the point of testing for real):
+1. `Microsoft.AspNetCore` missing → main csproj must use `Microsoft.NET.Sdk.Web`.
+2. Main project was globbing `sidecar/tests/*.cs` → must exclude `tests/**`.
+3. Test csproj targeted net9.0 but the box has SDK 8 → retarget net8.0.
+4. FlaUI 4.x symbol fixes pending (TrueCondition, pattern accessors, page-source nesting).
+→ Delegated the full "make C# build+tests green on Windows" loop to a background subagent.
+
+**Phase 3 — XPath engine (DONE, verified on Mac):** a subagent ported nova2's XPath engine onto our
+structured op contract: `lib/xpath/core.ts` exposes `xpathToElementIds(selector, multiple, contextId,
+findViaBackend)` and emits `findOp` calls (no PowerShell). **30/30 mocha pass** (16 prior + 14 new).
+Supports absolute/relative paths, `//`, child/descendant/self axes, attribute eq/neq + and/or predicates,
+positional `[n]`/`[last()]`, `(...)[1]`, unions, and findFirst optimization. Not yet: reverse/sibling axes,
+predicate functions (contains/starts-with), numeric relational predicates — documented in the header.
+
+**Known follow-up:** `tsc -b` build is red (NodeNext needs `.js` import extensions; driver.ts needs the
+@appium deps) — delegated to a "TS build green" subagent. Tests (via tsx) are green.
+
+---
+
 ## 2026-06-03 (cont.) — Phase 2 command surface (TS verified, C# authored)
 
 **VERIFIED ON macOS (15/15 mocha green):**
