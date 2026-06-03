@@ -48,3 +48,13 @@ doesn't list (AutomationId, IsContent/ControlElement, IsRequiredForForm, ItemSta
    the `all` dump return the full reachable set, with inspect-consistent value formatting (bool "True"/
    "False", enums "text (0xHEX)", rect as `{x,y,width,height}`/`l,t,r,b`).
 5. Unit-test the resolver (fake element) + Windows E2E diffing against this inspect dump for the Start button.
+
+---
+
+## ✅ RESOLVED (Phase A, 2026-06-03)
+
+Implemented FlaUI-native in `sidecar/PropertyResolver.cs`. Re-dumped the Start button on .44: **every inspect
+property now matches** (LegacyIAccessible.* incl. Role "push button (0x2B)" / State "focusable (0x100000)" /
+DefaultAction "Press"; Is*PatternAvailable flags; ProviderDescription; IsDialog=false; BoundingRectangle
+`{x:0,y:928,width:36,height:30}`). `Value.Value` dot-notation verified on a Notepad Edit. RuntimeId stays
+decimal by design. Both defects fixed (BoundingRectangle formatting; `all` dump completeness). Not published.

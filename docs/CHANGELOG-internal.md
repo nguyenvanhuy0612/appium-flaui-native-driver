@@ -5,6 +5,26 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — Phase A: FlaUI-native full attribute/property resolution (NOT published)
+
+`getAttribute`/`getProperty`/`getAttributes` now resolve the full UIA surface the FlaUI way (no PowerShell
+port). Verified on .44 to match `inspect.exe`'s Start-button dump property-by-property:
+- **Is<Pattern>PatternAvailable** flags — generic via `PatternLibrary.AllForCurrentFramework` +
+  `el.IsPatternSupported` (Invoke=true, LegacyIAccessible=true, rest false).
+- **LegacyIAccessible.\*** (+ `legacy*` aliases, UIA-empty→Legacy fallback) via `el.Patterns.LegacyIAccessible`;
+  Role/State formatted `"push button (0x2B)"` / `"focusable (0x100000)"` (Oleacc text + hex).
+- **pattern dot-notation** (`Value.Value`, `Toggle.ToggleState`, `Window.CanMaximize`, RangeValue/Scroll/
+  Grid…) via reflection over `el.Patterns`; unsupported → null (never 500).
+- **direct props** incl. `ProviderDescription`, `IsDialog`; **fixed `BoundingRectangle`** → `{x,y,width,height}`
+  (was `"[object Object]"`). `setValue` gained a keyboard-typing fallback for controls without ValuePattern.
+- New: `sidecar/PropertyResolver.cs` + FlaUI-free `PropertyResolverLogic.cs` (18 unit tests). TS unit 116,
+  C# unit 37, e2e 75, smoke 1.
+- **Value format (please confirm):** per-name `getAttribute` coerces to W3C strings (`"true"`, `"0"`, rect
+  as JSON string); the `all` dump keeps native JSON. Matches inspect's values, W3C-correct.
+- **Not published** (per user — review behavior first). Committed to git/GitHub only.
+
+---
+
 ## 2026-06-03 (cont.) — v0.1.0-beta.3: bring-on-top click + escalating setWindowForeground
 
 User asked the click to **bring the target on top first** (nova2's idea — focus the Window/Pane ancestor —
