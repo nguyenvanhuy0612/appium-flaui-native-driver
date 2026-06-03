@@ -2,6 +2,7 @@ using System.Text;
 using System.Xml;
 using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
+using FlaUI.Core.Conditions;
 using FlaUI.Core.Definitions;
 
 namespace FlaUiSidecar;
@@ -24,7 +25,10 @@ public static class PageSourceBuilder
         {
             TreeScope = TreeScope.Subtree,
             AutomationElementMode = AutomationElementMode.None,
-            TreeFilterCondition = rawView ? new TrueCondition() : automation.ConditionFactory.ByControlType(ControlType.Custom).Not().Or(new TrueCondition()),
+            // FlaUI 4.x: the property is TreeFilter (ConditionBase) and the match-all condition is the
+            // TrueCondition.Default singleton. Both views currently include all elements; a faithful
+            // control-view filter for the non-raw case is a later (schema-parity) refinement.
+            TreeFilter = TrueCondition.Default,
         };
         cache.Add(automation.PropertyLibrary.Element.Name);
         cache.Add(automation.PropertyLibrary.Element.AutomationId);
@@ -44,26 +48,35 @@ public static class PageSourceBuilder
 
         using (cache.Activate())
         {
-            // BFS over a snapshot: each queue item carries the element and whether its element-end is pending.
-            var queue = new Queue<(AutomationElement el, bool open)>();
+            // Stack-based DFS produces a correctly NESTED tree (XPath depends on nesting). Each frame is
+            // an element whose start-tag has already been written; a null marker means "write the matching
+            // end-tag for the most recently opened element". No recursion → safe on deep trees.
             writer.WriteStartDocument();
+            var stack = new Stack<AutomationElement?>();
             WriteNode(writer, start);
-            foreach (var child in start.CachedChildren) queue.Enqueue((child, true));
-            // NOTE: simple BFS writes a flat list under root; a faithful nested tree uses a stack-based DFS.
-            // The DFS variant is implemented during the Windows pass once schema parity is confirmed.
-            while (queue.Count > 0)
+            stack.Push(null); // closes <start>
+            PushChildrenReversed(stack, start);
+
+            while (stack.Count > 0)
             {
-                var (el, _) = queue.Dequeue();
+                var el = stack.Pop();
+                if (el is null) { writer.WriteEndElement(); continue; }
                 WriteNode(writer, el);
-                writer.WriteEndElement();
-                foreach (var child in el.CachedChildren) queue.Enqueue((child, true));
+                stack.Push(null); // closes this element after its subtree
+                PushChildrenReversed(stack, el);
             }
-            writer.WriteEndElement(); // close root
             writer.WriteEndDocument();
         }
 
         writer.Flush();
         return sb.ToString();
+    }
+
+    // Push children in reverse so they pop in document order (preserving left-to-right sibling order).
+    private static void PushChildrenReversed(Stack<AutomationElement?> stack, AutomationElement el)
+    {
+        var children = el.CachedChildren;
+        for (var i = children.Length - 1; i >= 0; i--) stack.Push(children[i]);
     }
 
     private static void WriteNode(XmlWriter w, AutomationElement el)

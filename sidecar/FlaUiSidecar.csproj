@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <!-- Windows TFM: FlaUI/UIA is Windows-only. Will not build on macOS/Linux (expected). -->
@@ -8,6 +8,11 @@
     <AssemblyName>FlaUiSidecar</AssemblyName>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Tests (xUnit) and throwaway spikes are built by their own projects, not the main exe. -->
+    <Compile Remove="tests/**" />
+    <Compile Remove="spikes/**" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FlaUI.UIA3" Version="4.0.0" />
     <PackageReference Include="FlaUI.UIA2" Version="4.0.0" />

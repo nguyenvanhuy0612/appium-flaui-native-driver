@@ -3,7 +3,6 @@ using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Conditions;
 using FlaUI.Core.Definitions;
-using FlaUI.Core.Exceptions;
 
 namespace FlaUiSidecar;
 
@@ -46,6 +45,9 @@ public sealed class OpInterpreter
 
         var found = start.FindFirst(scope, cond) ?? throw new ElementNotFoundException();
         return Basic(found);
+        // Note: FlaUI 4.x has no ElementNotFoundException; FindFirst signals "not found" by returning
+        // null. We raise a sidecar-local ElementNotFoundException (below) so Program.cs maps it to the
+        // W3C "no such element" error envelope.
     }
 
     /// <summary>Bulk attribute fetch (Phase 2). `names` is an array, or "all".</summary>
@@ -124,9 +126,9 @@ public sealed class OpInterpreter
         var cf = _automation.ConditionFactory;
         return c.GetProperty("kind").GetString() switch
         {
-            // TODO (Windows pass): replace with FlaUI's real true-condition. FlaUI exposes
-            // `new TrueCondition()` / ConditionFactory helpers — confirm the exact symbol on Windows.
-            "true" => new TrueCondition(),
+            // FlaUI 4.x exposes a singleton match-all condition via TrueCondition.Default
+            // (the ctor is private). FlaUI.Core.Conditions.
+            "true" => TrueCondition.Default,
             "property" => BuildProperty(cf, c),
             "and" => c.GetProperty("children").EnumerateArray().Select(BuildCondition)
                        .Aggregate((a, b) => a.And(b)),
@@ -186,3 +188,7 @@ public sealed class OpInterpreter
 }
 
 public sealed class StaleElementException(string id) : Exception($"stale element: {id}");
+
+/// <summary>Raised when a single-element find yields no match (FlaUI's FindFirst returned null).
+/// Mapped to the W3C "no such element" error in Program.cs.</summary>
+public sealed class ElementNotFoundException() : Exception("no such element matched the condition");

@@ -66,7 +66,7 @@ async Task<IResult> RunOp(Func<object?> work)
     }
     catch (TimeoutException ex) { return Err("timeout", ex.Message); }
     catch (StaleElementException ex) { return Err("stale element reference", ex.Message); }
-    catch (FlaUI.Core.Exceptions.ElementNotFoundException ex) { return Err("no such element", ex.Message); }
+    catch (ElementNotFoundException ex) { return Err("no such element", ex.Message); }
     catch (ArgumentException ex) { return Err("invalid selector", ex.Message); }
     catch (Exception ex) { return Err("unknown error", ex.Message); }
 }

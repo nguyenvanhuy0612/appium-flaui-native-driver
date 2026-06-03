@@ -5,6 +5,28 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — C# sidecar GREEN on Windows (verified)
+
+A subagent took the sidecar from "authored" to **compiling green + unit tests passing on the real Windows
+box**: `dotnet build sidecar/FlaUiSidecar.csproj` → 0 errors; `dotnet test` → 3/3 UiaScheduler tests pass
+(incl. the hang/poison/recover test, now on a real STA thread).
+
+**FlaUI 4.x API corrections made (valuable reference):**
+- `new TrueCondition()` → `TrueCondition.Default` (match-all is a singleton; ctor is private). `FlaUI.Core.Conditions`.
+- `CacheRequest.TreeFilterCondition` → `CacheRequest.TreeFilter` (`ConditionBase`). `CacheRequest` ∈ `FlaUI.Core`.
+- `FlaUI.Core.Exceptions.ElementNotFoundException` does NOT exist → use a sidecar-local exception; `FindFirst`
+  returning `null` is how "not found" is signaled. Mapped to W3C `no such element` in Program.cs.
+- Pattern chain `el.Patterns.<X>.Pattern.<Method>()`, `WindowVisualState` ∈ `FlaUI.Core.Definitions`,
+  `ValuePattern.SetValue(string)` — all confirmed correct.
+- csproj: switched to `Microsoft.NET.Sdk.Web` (Kestrel/minimal API), excluded `tests/**`; test csproj
+  retargeted net9.0 → net8.0 (box has SDK 8 only).
+- `PageSourceBuilder`: rewrote flat BFS → **stack-based DFS** so the XML nests correctly for XPath.
+
+**Still needs a real UI run to verify (flagged):** `/session`+`/op` against a live app; page-source schema
+parity with nova2 (tag names, relative x/y/w/h, pattern attrs); `rawView` TreeFilter is currently always-true.
+
+---
+
 ## 2026-06-03 (cont.) — Windows machine online + Phase 3 XPath (parallel subagents)
 
 **Windows test target connected:** `admin@172.16.10.44` (Win 10, 64-bit), SSH passwordless from the Mac.
