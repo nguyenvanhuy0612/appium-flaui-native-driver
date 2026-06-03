@@ -587,11 +587,18 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
       // Scoped insecure feature (ADR-014, reversing ADR-007). Gate must fail LOUD (F22): base-driver
       // 10.6 provides assertFeatureEnabled, so call it directly — never optional-chain it away.
       this.assertFeatureEnabled('power_shell');
-      const a = ((args as unknown[])?.[0] ?? {}) as { script?: string; command?: string };
+      const a = ((args as unknown[])?.[0] ?? {}) as {
+        script?: string;
+        command?: string;
+        timeoutMs?: number;
+        timeout?: number;
+      };
       const res = await this.op<{ stdout: string; stderr: string; exitCode: number }>({
         op: 'powershell',
         script: a.script ?? a.command ?? '',
-        timeoutMs: this.opts.powerShellCommandTimeout,
+        // Per-call timeout wins; else the session cap (powerShellCommandTimeout); else the sidecar's 60s
+        // default. PowerShell runs out-of-scheduler so flaui:operationTimeout does NOT bound it — this is.
+        timeoutMs: a.timeoutMs ?? a.timeout ?? this.opts.powerShellCommandTimeout,
       });
       return res.stdout;
     }

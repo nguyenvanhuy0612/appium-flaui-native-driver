@@ -105,7 +105,7 @@ The driver supports the following capabilities:
 | `appium:prerun` | `{ script }` — PowerShell to run before the session starts (requires the `power_shell` insecure feature). | (None) | `{script: '...'}` |
 | `appium:typeDelay` | Delay (ms) after each character typed (does not apply to modifier keys). | `0` | `100` |
 | `appium:releaseModifierKeys` | Release modifier keys after sending keys. | `true` | `true` |
-| `appium:powerShellCommandTimeout` | Timeout (ms) for PowerShell execution. | `60000` | `30000` |
+| `appium:powerShellCommandTimeout` | Default timeout (ms) for PowerShell execution. PowerShell runs out-of-scheduler, so `flaui:operationTimeout` does **not** bound it — this does. Overridable per call via a `timeoutMs` arg to `execute('powershell', …)`. | `60000` | `30000` |
 | `appium:smoothPointerMove` | CSS-like easing for smooth pointer movement (accepted; effect is a roadmap item). | (None) | `ease-in-out` |
 | `appium:delayBeforeClick` / `appium:delayAfterClick` | Delays (ms) around a click (accepted; effect is a roadmap item). | `0` | `500` |
 
@@ -231,6 +231,9 @@ driver.execute_script('powershell', {'command': 'Get-Process Notepad'})
 
 # Execute a script string
 driver.execute_script('powershell', {'script': '$p = Get-Process Notepad; $p.Kill()'})
+
+# Override the timeout for this call only (ms); else falls back to powerShellCommandTimeout, then 60s
+driver.execute_script('powershell', {'command': 'Start-Sleep 5; "done"', 'timeoutMs': 10000})
 ```
 
 ---
