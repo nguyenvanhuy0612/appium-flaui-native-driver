@@ -145,6 +145,23 @@ public static class PropertyResolver
     // then reflect the requested property → it's an AutomationProperty<T> → read .ValueOrDefault.
     private static object? ResolveDotNotation(AutomationElement el, string patternName, string propName)
     {
+        var pattern = GetPattern(el, patternName);
+        if (pattern is null) return null;
+
+        var member = pattern.GetType().GetProperty(propName,
+            BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+        if (member is null) return null;
+
+        object? raw;
+        try { raw = member.GetValue(pattern); } catch { return null; }
+        return UnwrapAutomationProperty(raw);
+    }
+
+    // Resolve a pattern instance by its accessor name (Value, GridItem, Window, …) → the pattern object,
+    // or null when the element doesn't support it. Shared by ResolveDotNotation and the "all" dump's
+    // supported-pattern expansion.
+    private static object? GetPattern(AutomationElement el, string patternName)
+    {
         var patterns = el.Patterns;
         var accessor = patterns.GetType()
             .GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
@@ -159,17 +176,7 @@ public static class PropertyResolver
 
         // IAutomationPattern<T>.PatternOrDefault → the pattern instance (or null when unsupported).
         var pod = patternHolder.GetType().GetProperty("PatternOrDefault");
-        object? pattern;
-        try { pattern = pod?.GetValue(patternHolder); } catch { return null; }
-        if (pattern is null) return null;
-
-        var member = pattern.GetType().GetProperty(propName,
-            BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-        if (member is null) return null;
-
-        object? raw;
-        try { raw = member.GetValue(pattern); } catch { return null; }
-        return UnwrapAutomationProperty(raw);
+        try { return pod?.GetValue(patternHolder); } catch { return null; }
     }
 
     private static bool IsAutomationPattern(Type t) =>
@@ -208,7 +215,12 @@ public static class PropertyResolver
         if (v.GetType().IsEnum) return v.ToString();
         if (v is System.Drawing.Rectangle r)
             return new { x = r.X, y = r.Y, width = r.Width, height = r.Height };
-        if (v is AutomationElement) return null; // not serialisable here; callers use dedicated ops
+        // Element-reference properties (GridItem.ContainingGrid, SelectionItem.SelectionContainer, …):
+        // inspect renders them by the target's Name, so surface that rather than a non-serialisable element.
+        if (v is AutomationElement ae)
+        {
+            try { return ae.Properties.Name.ValueOrDefault; } catch { return null; }
+        }
         return v;
     }
 
@@ -246,9 +258,19 @@ public static class PropertyResolver
             "Orientation" => el.Properties.Orientation.ValueOrDefault.ToString(),
             "ProviderDescription" => el.Properties.ProviderDescription.ValueOrDefault,
             "IsDialog" => SafeBool(() => el.Properties.IsDialog.ValueOrDefault),
+            "ClickablePoint" => ClickablePointOf(el),
             _ => Sentinel,
         };
         return !ReferenceEquals(value, Sentinel);
+    }
+
+    // inspect shows ClickablePoint as {x,y}. FlaUI computes it via UIA GetClickablePoint; use the Try form
+    // so an element without one returns null (200+null) rather than throwing.
+    private static object? ClickablePointOf(AutomationElement el)
+    {
+        try { if (el.TryGetClickablePoint(out var p)) return new { x = p.X, y = p.Y }; }
+        catch { /* no clickable point */ }
+        return null;
     }
 
     private static readonly object Sentinel = new();
@@ -333,8 +355,30 @@ public static class PropertyResolver
     }
 
     // ── "all" dump ───────────────────────────────────────────────────────────────────────────
+    // Per-pattern property names exposed in the "all" dump WHEN the element supports the pattern (inspect
+    // lists a pattern's properties only for supported patterns). Names match FlaUI's pattern property
+    // accessors; an absent name resolves to null (safe). Element-ref props (ContainingGrid, …) surface as
+    // the target's Name via Normalize. Array/collection props (e.g. Table header items) are intentionally
+    // omitted — they aren't faithfully serialisable here.
+    private static readonly (string Prefix, string[] Props)[] PatternProperties =
+    {
+        ("Value", new[] { "Value", "IsReadOnly" }),
+        ("RangeValue", new[] { "Value", "Minimum", "Maximum", "SmallChange", "LargeChange", "IsReadOnly" }),
+        ("Toggle", new[] { "ToggleState" }),
+        ("ExpandCollapse", new[] { "ExpandCollapseState" }),
+        ("Scroll", new[] { "HorizontalScrollPercent", "VerticalScrollPercent", "HorizontalViewSize", "VerticalViewSize", "HorizontallyScrollable", "VerticallyScrollable" }),
+        ("Window", new[] { "CanMaximize", "CanMinimize", "IsModal", "IsTopmost", "WindowVisualState", "WindowInteractionState" }),
+        ("Grid", new[] { "RowCount", "ColumnCount" }),
+        ("GridItem", new[] { "Row", "Column", "RowSpan", "ColumnSpan", "ContainingGrid" }),
+        ("Selection", new[] { "CanSelectMultiple", "IsSelectionRequired" }),
+        ("SelectionItem", new[] { "IsSelected", "SelectionContainer" }),
+        ("Transform", new[] { "CanMove", "CanResize", "CanRotate" }),
+        ("Dock", new[] { "DockPosition" }),
+    };
+
     /// <summary>The full reachable attribute set for an element: every direct UIA property we expose, the
-    /// LegacyIAccessible.* family, and all Is*PatternAvailable flags — inspect-comparable.</summary>
+    /// LegacyIAccessible.* family, all Is*PatternAvailable flags, AND — for each supported pattern — its
+    /// property values via dot-notation (Value.Value, GridItem.Row, Window.CanMaximize, …). Inspect-comparable.</summary>
     public static Dictionary<string, object?> All(AutomationElement el, AutomationBase automation)
     {
         var dict = new Dictionary<string, object?>();
@@ -348,7 +392,21 @@ public static class PropertyResolver
             try { dict["LegacyIAccessible." + prop] = ResolveLegacy(el, prop); }
             catch { dict["LegacyIAccessible." + prop] = null; }
         }
+        // Supported patterns' property values (inspect shows a pattern's props only when it's supported).
+        foreach (var (prefix, props) in PatternProperties)
+        {
+            if (GetPattern(el, prefix) is null) continue;
+            foreach (var prop in props)
+            {
+                var key = prefix + "." + prop;
+                try { dict[key] = ResolveDotNotation(el, prefix, prop); }
+                catch { dict[key] = null; }
+            }
+        }
         foreach (var kv in AllPatternAvailability(el, automation)) dict[kv.Key] = kv.Value;
+        // inspect-listed flags FlaUI's pattern table omits → best-effort false.
+        foreach (var extra in PropertyResolverLogic.ExtraAvailabilityFlags)
+            if (!dict.ContainsKey(extra)) dict[extra] = false;
         return dict;
     }
 }

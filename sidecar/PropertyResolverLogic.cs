@@ -14,7 +14,15 @@ public static class PropertyResolverLogic
         "IsKeyboardFocusable", "HasKeyboardFocus", "AccessKey", "AcceleratorKey", "ProcessId", "RuntimeId",
         "FrameworkId", "ClassName", "AutomationId", "NativeWindowHandle", "ProviderDescription",
         "IsPassword", "HelpText", "IsDialog", "IsContentElement", "IsControlElement", "IsRequiredForForm",
-        "ItemStatus", "ItemType", "Orientation", "Value", "IsSelected",
+        "ItemStatus", "ItemType", "Orientation", "Value", "IsSelected", "ClickablePoint",
+    };
+
+    /// <summary>Availability flags inspect.exe lists that FlaUI's pattern table for the current framework
+    /// does not surface (so they never come back from PatternLibrary). Included in the "all" dump as a
+    /// best-effort <c>false</c> for inspect parity; FlaUI cannot determine their real support.</summary>
+    public static readonly string[] ExtraAvailabilityFlags =
+    {
+        "IsCustomNavigationPatternAvailable", "IsSelectionPattern2Available",
     };
 
     /// <summary>LegacyIAccessible.* sub-properties (inspect alphabetical order).</summary>
