@@ -29,6 +29,12 @@ public sealed class OpInterpreter
         return new { rootId = _registry.Register(root) };
     }
 
+    /// <summary>Best-effort close of the session root window (used for attached sessions).</summary>
+    public void CloseRootWindow()
+    {
+        try { _root?.Patterns.Window.PatternOrDefault?.Close(); } catch { /* best effort */ }
+    }
+
     public object Find(JsonElement op)
     {
         var startId = op.GetProperty("startId").GetString()!;
@@ -212,6 +218,8 @@ public sealed class OpInterpreter
         "IsSelected" => el.Patterns.SelectionItem.PatternOrDefault?.IsSelected.ValueOrDefault,
         // BoundingRectangle as a plain {x,y,width,height} object (used by W3C getElementRect).
         "BoundingRectangle" => RectOf(el),
+        // HWND as hex (used by the attach flow: read it, then re-attach via appTopLevelWindow).
+        "NativeWindowHandle" => "0x" + el.Properties.NativeWindowHandle.ValueOrDefault.ToInt64().ToString("X"),
         _ => throw new ArgumentException($"unknown attribute: {name}"),
     };
 

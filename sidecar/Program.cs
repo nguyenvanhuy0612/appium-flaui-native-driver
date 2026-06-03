@@ -19,27 +19,56 @@ var scheduler = new UiaScheduler();
 var registry = new ElementRegistry();
 AutomationBase? automation = null;
 OpInterpreter? interp = null;
+Application? launchedApp = null;   // set only when WE launched the app (not when attaching)
+var shouldCloseApp = true;
 
 app.MapGet("/status", () => Results.Json(new { ok = true, ready = true }));
 
 app.MapPost("/session", async (HttpRequest req) =>
 {
     using var doc = await JsonDocument.ParseAsync(req.Body);
-    var caps = doc.RootElement;
+    var caps = doc.RootElement.Clone();
     var backend = caps.TryGetProperty("backend", out var b) ? b.GetString() : "uia3";
     automation = backend == "uia2" ? new UIA2Automation() : new UIA3Automation();
     automation.ConnectionTimeout = TimeSpan.FromSeconds(60);   // anti-hang layer 1
     automation.TransactionTimeout = TimeSpan.FromSeconds(60);
     interp = new OpInterpreter(automation, registry);
+    shouldCloseApp = !caps.TryGetProperty("shouldCloseApp", out var sc) || sc.ValueKind != JsonValueKind.False;
 
-    var appPath = caps.GetProperty("app").GetString()!;
     return await RunOp(() =>
     {
-        var launched = Application.Launch(appPath);
-        var root = launched.GetMainWindow(automation!);
+        FlaUI.Core.AutomationElements.AutomationElement root;
+        if (caps.TryGetProperty("appTopLevelWindow", out var h) && h.GetString() is { Length: > 0 } hex)
+        {
+            // Attach to an existing top-level window by HWND (hex, with or without 0x).
+            var hwnd = Convert.ToInt64(hex.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? hex[2..] : hex, 16);
+            root = automation!.FromHandle(new IntPtr(hwnd));
+        }
+        else
+        {
+            var appPath = caps.GetProperty("app").GetString()!;
+            var psi = new System.Diagnostics.ProcessStartInfo(appPath)
+            {
+                Arguments = caps.TryGetProperty("appArguments", out var aa) ? aa.GetString() ?? string.Empty : string.Empty,
+                WorkingDirectory = caps.TryGetProperty("appWorkingDir", out var wd) ? wd.GetString() ?? string.Empty : string.Empty,
+                UseShellExecute = true,
+            };
+            launchedApp = Application.Launch(psi);
+            root = launchedApp.GetMainWindow(automation!);
+        }
         return interp!.OpenSession(root);
     });
 });
+
+app.MapDelete("/session", async () => await RunOp(() =>
+{
+    if (shouldCloseApp)
+    {
+        if (launchedApp is not null) { try { launchedApp.Close(); } catch { /* best effort */ } }
+        else interp?.CloseRootWindow();   // attached session: close via WindowPattern
+    }
+    return new { done = true };
+}));
 
 app.MapPost("/op", async (HttpRequest req) =>
 {

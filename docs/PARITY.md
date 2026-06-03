@@ -12,7 +12,7 @@ _Last updated 2026-06-03._
 | createSession | ✅ | spawns C# sidecar, attaches app |
 | deleteSession | ✅ | stops sidecar |
 | findElOrEls | ✅ | strategies below |
-| getPageSource | ✅ | XML nests correctly; schema parity w/ nova2 still pending |
+| getPageSource | ✅ | full nova2 schema: all UIA attrs, x/y relative to root, Window/Transform pattern attrs; rawView pending |
 | getAttribute | ✅ | UIA props + `Value` (ValuePattern) |
 | setValue | ✅ | ValuePattern.SetValue |
 | clear | ✅ | setValue "" |
@@ -70,9 +70,9 @@ setFocus, scrollIntoView, **setValue ✅**, maximize, minimize, restore, close (
 |---|---|---|
 | platformName | ✅ | |
 | app (implicit) | ✅ | |
-| appTopLevelWindow | ⬜ | attach-to-window (next batch — sidecar supports the idea) |
-| appArguments / appWorkingDir | ⬜ | next batch |
-| shouldCloseApp | ⬜ | next batch |
+| appTopLevelWindow | ✅ | attach by hex HWND — verified via detach/re-attach E2E flow |
+| appArguments / appWorkingDir | 🟡 | passed to ProcessStartInfo |
+| shouldCloseApp | ✅ | verified: false keeps app open across sessions; true closes (launched app or attached window) |
 | ms:waitForAppLaunch / ms:forcequit | ⬜ | later |
 | convertAbsoluteXPathToRelativeFromElement | ⬜ | xpath option (later) |
 | includeContextElementInSearch | ⬜ | xpath option (later) |
@@ -90,5 +90,8 @@ scopeSession/resetSessionRoot); (c) screenshots + recording; (d) attach-to-windo
 (`appTopLevelWindow`, `appArguments`, `shouldCloseApp`, ...); (e) page-source schema parity + rawView;
 (f) `-windows uiautomation` raw-condition strategy. PowerShell-only features are intentionally not ported.
 
-**Next (decided):** (d) attach/app-lifecycle capabilities + (e) page-source schema parity — they unblock
-real-world usage (attaching to running apps) and drop-in nova2 compatibility, before the bigger input layer.
+**Done since:** (d) attach caps (`appTopLevelWindow` ✅, `shouldCloseApp` ✅, `appArguments`/`appWorkingDir` 🟡)
+and (e) page-source schema parity (full attribute set, relative coords, pattern attrs) — both E2E-verified.
+
+**Next (decided):** the input layer (Phase 5: keys/click/hover/scroll/clickAndDrag + W3C Actions), then
+screenshots, rawView, `-windows uiautomation`, win-arm64, and the real frozen-app anti-hang test (Phase 4).

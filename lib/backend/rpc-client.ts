@@ -32,6 +32,12 @@ export class RpcClient {
     throw new RpcError(res.error.type, res.error.message);
   }
 
+  /** Close the sidecar session (closes the app per shouldCloseApp). Best-effort companion to stop(). */
+  async deleteSession(): Promise<void> {
+    const res = (await this.fetchJson('DELETE', '/session')) as BackendResult<unknown>;
+    if (!res.ok) throw new RpcError(res.error.type, res.error.message);
+  }
+
   private async fetchJson(method: string, path: string, body?: unknown): Promise<unknown> {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), this.timeoutMs);

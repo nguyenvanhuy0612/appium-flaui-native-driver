@@ -5,6 +5,30 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — Parity batch 2: attach-to-window + page-source schema parity (E2E PASS)
+
+**Both E2E phases green on Windows:**
+- **Attach flow ✅:** launch Notepad with `shouldCloseApp:false` → read the window's `NativeWindowHandle`
+  (`0x40344`) via getAttribute → delete session (app SURVIVES) → create a new session with
+  `appium:appTopLevelWindow` (no `app`) → find Edit → setValue `attached-ok` reads back ✅ → delete session
+  closes the attached window (WindowPattern).
+- **Page-source schema parity ✅:** `PageSourceBuilder` now emits the full nova2 attribute set
+  (AcceleratorKey…ProcessId, RuntimeId), **x/y relative to the start element**, and pattern attributes
+  (CanMaximize/CanMinimize/IsModal/WindowVisualState, CanRotate/CanResize/CanMove). Notepad source grew
+  4.6 KB → 13.9 KB; schema markers asserted in E2E. `rawView` + CacheRequest single-pass remain TODO.
+
+**New caps:** `appTopLevelWindow` (hex HWND attach), `appArguments`, `appWorkingDir`, `shouldCloseApp`
+(default true). Sidecar `/session` handles attach-vs-launch (ProcessStartInfo for args/cwd); new
+`DELETE /session` closes the app per `shouldCloseApp` (launched → `app.Close()`, attached → WindowPattern
+close); TS `deleteSession` calls it before stopping the sidecar. `ReadAttribute` gained
+`NativeWindowHandle` (hex).
+
+**Bug found & fixed via the live run:** finding the root window by its own ClassName failed — direct-strategy
+find used `descendants` scope, which excludes the start element. Switched to `subtree` (matches nova2's
+default `includeContextElementInSearch:true`).
+
+---
+
 ## 2026-06-03 (cont.) — Parity batch 1: W3C reads + locators + windows: reads (E2E PASS)
 
 Built `docs/PARITY.md` (full nova2 → FlaUINative matrix) per the user's request, then closed the first gap

@@ -35,6 +35,10 @@ const W3C_ELEMENT_KEY = 'element-6066-11e4-a52e-4f735466cecf';
 const constraints = {
   platformName: { isString: true, presence: true, inclusionCaseInsensitive: ['Windows'] },
   app: { isString: true },
+  appTopLevelWindow: { isString: true }, // hex HWND of an existing window to attach to
+  appArguments: { isString: true },
+  appWorkingDir: { isString: true },
+  shouldCloseApp: { isBoolean: true }, // default true
   'flaui:backend': { isString: true, inclusion: ['uia3', 'uia2'] },
 } as const;
 
@@ -71,10 +75,17 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     const [sessionId, caps] = await super.createSession(w3cCaps1, w3cCaps2, w3cCaps3, driverData);
     const arch = process.arch === 'arm64' ? 'win-arm64' : 'win-x64';
     const exe = path.resolve(__dirname, `../../prebuilt/${arch}/FlaUiSidecar.exe`);
+    if (!this.opts.app && !this.opts.appTopLevelWindow) {
+      throw new Error(`Either 'appium:app' or 'appium:appTopLevelWindow' must be provided`);
+    }
     this.sidecar = new Sidecar({ command: exe, args: [] });
     await this.sidecar.start();
     await this.sidecar.client.session({
       app: this.opts.app,
+      appTopLevelWindow: this.opts.appTopLevelWindow,
+      appArguments: this.opts.appArguments,
+      appWorkingDir: this.opts.appWorkingDir,
+      shouldCloseApp: this.opts.shouldCloseApp ?? true,
       backend: this.opts['flaui:backend'] ?? 'uia3',
     });
     return [sessionId, caps];
@@ -82,6 +93,12 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
 
   async deleteSession(sessionId?: string, _driverData?: DriverData[]): Promise<void> {
     try {
+      // Close the app per shouldCloseApp (best effort), then stop the sidecar process.
+      try {
+        await this.sidecar?.client.deleteSession();
+      } catch {
+        /* best effort */
+      }
       await this.sidecar?.stop();
     } finally {
       await super.deleteSession(sessionId);
@@ -128,7 +145,9 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
       findOp({
         startId: context ?? 'root',
         multiple: mult,
-        scope: 'descendants',
+        // 'subtree' includes the start element itself — matches nova2's default
+        // includeContextElementInSearch:true (e.g. finding the root Window by its own ClassName).
+        scope: 'subtree',
         condition: propertyCondition(prop, selector),
       }),
     );
