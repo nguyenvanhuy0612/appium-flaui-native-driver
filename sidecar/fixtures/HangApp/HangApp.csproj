@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Tiny UIA-visible WinForms app used by tests/e2e/11-hang-injection.e2e.spec.ts to prove the
+       driver's #1 promise (design §6 / §1.1): a hung target app fails ONE command fast (bounded by
+       flaui:operationTimeout) while the Appium server + session SURVIVE.
+
+       The single "Freeze" button blocks its OWN UI thread (Thread.Sleep) in the Click handler. Once
+       blocked, the window stops pumping messages, so any UIA property query against it hangs — which is
+       exactly the frozen-app condition the per-op watchdog must bound. NOT part of the main sidecar
+       project; built/published standalone (see the spec header for the publish recipe). -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>HangApp</AssemblyName>
+  </PropertyGroup>
+
+</Project>
