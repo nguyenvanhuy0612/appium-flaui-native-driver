@@ -126,6 +126,77 @@ public sealed class OpInterpreter
         return new { done = true };
     }
 
+    /// <summary>Tree walking for XPath reverse/sibling axes (control view, ordered).</summary>
+    public object Walk(JsonElement op)
+    {
+        var el = ResolveOrThrow(op.GetProperty("id").GetString()!);
+        var direction = op.GetProperty("direction").GetString();
+        var walker = _automation.TreeWalkerFactory.GetControlViewWalker();
+        var list = new List<AutomationElement>();
+        switch (direction)
+        {
+            case "parent":
+            {
+                var p = walker.GetParent(el);
+                if (p is not null) list.Add(p);
+                break;
+            }
+            case "ancestors":
+            {
+                var p = walker.GetParent(el);
+                while (p is not null) { list.Add(p); p = walker.GetParent(p); }
+                break;
+            }
+            case "following-siblings":
+            {
+                var s = walker.GetNextSibling(el);
+                while (s is not null) { list.Add(s); s = walker.GetNextSibling(s); }
+                break;
+            }
+            case "preceding-siblings":
+            {
+                var s = walker.GetPreviousSibling(el);
+                while (s is not null) { list.Add(s); s = walker.GetPreviousSibling(s); }
+                break;
+            }
+            default: throw new ArgumentException($"unsupported walk direction: {direction}");
+        }
+        return new { elements = list.Select(Basic).ToArray() };
+    }
+
+    /// <summary>Session-window commands: the W3C window endpoints operate on the session root window.</summary>
+    public object? Window(JsonElement op)
+    {
+        var root = _root!;
+        var action = op.GetProperty("action").GetString();
+        switch (action)
+        {
+            case "title":
+                return new { value = root.Properties.Name.ValueOrDefault ?? string.Empty };
+            case "handle":
+                return new { value = "0x" + root.Properties.NativeWindowHandle.ValueOrDefault.ToInt64().ToString("X") };
+            case "rect":
+                return RectOf(root);
+            case "setRect":
+            {
+                var t = root.Patterns.Transform.PatternOrDefault;
+                var a = op.GetProperty("args");
+                if (a.TryGetProperty("x", out var x) && a.TryGetProperty("y", out var y) && t?.CanMove.ValueOrDefault == true)
+                    t.Move(x.GetDouble(), y.GetDouble());
+                if (a.TryGetProperty("width", out var w) && a.TryGetProperty("height", out var h) && t?.CanResize.ValueOrDefault == true)
+                    t.Resize(w.GetDouble(), h.GetDouble());
+                return RectOf(root);
+            }
+            case "maximize":
+                root.Patterns.Window.Pattern.SetWindowVisualState(WindowVisualState.Maximized);
+                return RectOf(root);
+            case "minimize":
+                root.Patterns.Window.Pattern.SetWindowVisualState(WindowVisualState.Minimized);
+                return RectOf(root);
+            default: throw new ArgumentException($"unsupported window action: {action}");
+        }
+    }
+
     /// <summary>Real mouse/keyboard input via FlaUI.Core.Input (ADR-005 rev.1). Requires an interactive
     /// desktop session. Element-targeted points default to the element's center.</summary>
     public object? Input(JsonElement op)

@@ -26,7 +26,11 @@ export type BackendOp =
       args: Record<string, unknown>;
     }
   | { op: 'screenshot'; id?: string }
-  | { op: 'clipboard'; action: 'get' | 'set'; contentType?: string; b64?: string };
+  | { op: 'clipboard'; action: 'get' | 'set'; contentType?: string; b64?: string }
+  | { op: 'walk'; id: string; direction: 'parent' | 'ancestors' | 'following-siblings' | 'preceding-siblings' }
+  | { op: 'window'; action: 'title' | 'handle' | 'rect' | 'setRect' | 'maximize' | 'minimize'; args?: Record<string, unknown> }
+  | { op: 'app'; action: 'launch' | 'close' | 'activate'; process?: string }
+  | { op: 'powershell'; script: string };
 
 export interface BasicProps {
   runtimeId: string;

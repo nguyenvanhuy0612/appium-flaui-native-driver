@@ -5,6 +5,30 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — nova2-suite compatibility batch (goal: run the user's real nova2 E2E suite)
+
+Analyzed nova2's full e2e suite (11+ test files; webdriverio v9; Notepad + `app:'Root'` desktop sessions;
+13 xpath axes + 24 functions; ~20 windows: commands; `powershell` execute used heavily for verification).
+Spawned a background subagent to bring `lib/xpath` to FULL nova2 parity (axes/functions/numeric ops/@*/
+aliases) against a new `XPathBackend` contract (find + walk + attributes).
+
+Implemented + verified (regression E2E still fully green):
+- **`app: 'Root'`** → desktop session (`automation.GetDesktop()`).
+- **`walk` op** (parent/ancestors/following-siblings/preceding-siblings via TreeWalker) — for reverse axes.
+- **W3C window commands**: getTitle, getWindowHandle(s), getWindowRect, setWindowRect (TransformPattern),
+  maximizeWindow, minimizeWindow — all on the session root window via the new `window` op.
+- **windows:**: launchApp (re-roots session), closeApp, setProcessForeground (by process name),
+  typeDelay (advisory), cacheRequest (accepted no-op), getPageSource (element-scoped).
+- **`powershell` execute** (ADR-007 revised: optional convenience, gated as `flauinative:power_shell`
+  insecure feature; runs OUT of the UIA scheduler so long scripts don't hit the watchdog).
+- **nova2-compat caps accepted**: ms:waitForAppLaunch (sleeps), prerun (runs via powershell), plus
+  powerShellCommandTimeout/treatStderrAsError/typeDelay/smoothPointerMove/delays/etc. (advisory).
+- `windows:` element commands now accept BOTH `{elementId}` and the W3C element-key object (nova2 style);
+  setClipboard accepts nova2's `b64Content`. **Fix:** W3C `getName` (Get Element TAG Name) now returns the
+  ControlType tag, not the Name property.
+
+---
+
 ## 2026-06-03 (cont.) — W3C Actions API + screenshots + clipboard (E2E PASS)
 
 **All verified on Windows in one run (Notepad E2E):**

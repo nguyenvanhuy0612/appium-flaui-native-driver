@@ -43,6 +43,21 @@ const constraints = {
   appWorkingDir: { isString: true },
   shouldCloseApp: { isBoolean: true }, // default true
   'flaui:backend': { isString: true, inclusion: ['uia3', 'uia2'] },
+  // nova2-compat capabilities (accepted; some are advisory no-ops here — see docs/PARITY.md)
+  'ms:waitForAppLaunch': { isNumber: true },
+  'ms:forcequit': { isBoolean: true },
+  powerShellCommandTimeout: { isNumber: true },
+  treatStderrAsError: { isBoolean: true },
+  prerun: { isObject: true },
+  postrun: { isObject: true },
+  typeDelay: { isNumber: true },
+  smoothPointerMove: { isString: true },
+  delayBeforeClick: { isNumber: true },
+  delayAfterClick: { isNumber: true },
+  releaseModifierKeys: { isBoolean: true },
+  includeContextElementInSearch: { isBoolean: true },
+  convertAbsoluteXPathToRelativeFromElement: { isBoolean: true },
+  isolatedScriptExecution: { isBoolean: true },
 } as const;
 
 type Constraints = typeof constraints;
@@ -58,14 +73,24 @@ const WINDOWS_METHOD_PREFIX = 'windowsCmd_';
 const executeMethodMap = Object.fromEntries([
   ...SUPPORTED_WINDOWS_COMMANDS.map((name) => [
     `windows: ${name}`,
-    { command: `${WINDOWS_METHOD_PREFIX}${name}`, params: { required: ['elementId'], optional: ['value'] } },
+    // nova2 clients pass either {elementId} or the W3C element object key — accept both.
+    {
+      command: `${WINDOWS_METHOD_PREFIX}${name}`,
+      params: { required: [], optional: ['elementId', W3C_ELEMENT_KEY, 'value'] },
+    },
   ]),
   ...Object.entries(INPUT_COMMANDS).map(([name, spec]) => [
     `windows: ${name}`,
     { command: `${WINDOWS_METHOD_PREFIX}${name}`, params: spec.params },
   ]),
-  ['windows: setClipboard', { command: `${WINDOWS_METHOD_PREFIX}setClipboard`, params: { required: ['b64'], optional: ['contentType'] } }],
+  ['windows: setClipboard', { command: `${WINDOWS_METHOD_PREFIX}setClipboard`, params: { required: [], optional: ['b64', 'b64Content', 'contentType'] } }],
   ['windows: getClipboard', { command: `${WINDOWS_METHOD_PREFIX}getClipboard`, params: { required: [], optional: ['contentType'] } }],
+  ['windows: launchApp', { command: `${WINDOWS_METHOD_PREFIX}launchApp`, params: { required: [], optional: [] } }],
+  ['windows: closeApp', { command: `${WINDOWS_METHOD_PREFIX}closeApp`, params: { required: [], optional: [] } }],
+  ['windows: setProcessForeground', { command: `${WINDOWS_METHOD_PREFIX}setProcessForeground`, params: { required: ['process'], optional: [] } }],
+  ['windows: typeDelay', { command: `${WINDOWS_METHOD_PREFIX}typeDelay`, params: { required: ['delay'], optional: [] } }],
+  ['windows: cacheRequest', { command: `${WINDOWS_METHOD_PREFIX}cacheRequest`, params: { required: [], optional: ['treeScope', 'treeFilter', 'conditions', 'automationElementMode'] } }],
+  ['windows: getPageSource', { command: `${WINDOWS_METHOD_PREFIX}getPageSource`, params: { required: [], optional: ['elementId'] } }],
 ]) as unknown as ExecuteMethodMap<FlaUINativeDriver>;
 
 // W3C key codepoints (subset) → Windows virtual-key codes for performActions key sequences.
@@ -116,6 +141,14 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
       shouldCloseApp: this.opts.shouldCloseApp ?? true,
       backend: this.opts['flaui:backend'] ?? 'uia3',
     });
+    // nova2-compat: optional settle delay after app launch (seconds).
+    const wait = this.opts['ms:waitForAppLaunch'];
+    if (typeof wait === 'number' && wait > 0) await new Promise((r) => setTimeout(r, wait * 1000));
+    // nova2-compat: optional prerun PowerShell snippet (best effort).
+    const prerun = this.opts.prerun as { script?: string; command?: string } | undefined;
+    if (prerun?.script || prerun?.command) {
+      await this.sidecar.client.op({ op: 'powershell', script: prerun.script ?? prerun.command ?? '' });
+    }
     return [sessionId, caps];
   }
 
@@ -221,7 +254,8 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   }
 
   async getName(elementId: string): Promise<string> {
-    return (await this.getAttribute('Name', elementId)) ?? '';
+    // W3C "Get Element Tag Name" — returns the tag (ControlType), matching the page-source tag names.
+    return (await this.getAttribute('ControlType', elementId)) ?? '';
   }
 
   async getProperty(name: string, elementId: string): Promise<string | null> {
@@ -263,8 +297,9 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   }
 
   // ── Clipboard (windows: setClipboard / getClipboard; plaintext base64, nova2-style) ───────
-  async windowsCmd_setClipboard(b64: string, contentType?: string): Promise<unknown> {
-    return this.sidecar!.client.op({ op: 'clipboard', action: 'set', b64, contentType });
+  async windowsCmd_setClipboard(b64?: string, b64Content?: string, contentType?: string): Promise<unknown> {
+    // nova2 calls this parameter `b64Content`; accept both spellings.
+    return this.sidecar!.client.op({ op: 'clipboard', action: 'set', b64: b64 ?? b64Content, contentType });
   }
 
   async windowsCmd_getClipboard(contentType?: string): Promise<string> {
@@ -351,7 +386,80 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   // base-driver provides no default `execute`, so the W3C execute endpoint 405s without this. Route it
   // through executeMethod, which dispatches via the static executeMethodMap.
   async execute(script: string, args: unknown[]): Promise<unknown> {
+    if (script.trim().toLowerCase() === 'powershell') {
+      // Scoped insecure feature (ADR-007 rev: optional convenience, NOT the backbone).
+      (this as unknown as { assertFeatureEnabled?: (f: string) => void }).assertFeatureEnabled?.('power_shell');
+      const a = ((args as unknown[])?.[0] ?? {}) as { script?: string; command?: string };
+      const res = await this.sidecar!.client.op<{ stdout: string; stderr: string; exitCode: number }>({
+        op: 'powershell',
+        script: a.script ?? a.command ?? '',
+      });
+      return res.stdout;
+    }
     return this.executeMethod(script, args);
+  }
+
+  // ── W3C window commands (operate on the session root window) ──────────────────────────────
+  async getTitle(): Promise<string> {
+    return (await this.sidecar!.client.op<{ value: string }>({ op: 'window', action: 'title' })).value;
+  }
+
+  async getWindowHandle(): Promise<string> {
+    return (await this.sidecar!.client.op<{ value: string }>({ op: 'window', action: 'handle' })).value;
+  }
+
+  async getWindowHandles(): Promise<string[]> {
+    return [await this.getWindowHandle()];
+  }
+
+  async getWindowRect(): Promise<{ x: number; y: number; width: number; height: number }> {
+    return this.sidecar!.client.op({ op: 'window', action: 'rect' });
+  }
+
+  async setWindowRect(x: number | null, y: number | null, width: number | null, height: number | null) {
+    const args: Record<string, unknown> = {};
+    if (x != null) args.x = x;
+    if (y != null) args.y = y;
+    if (width != null) args.width = width;
+    if (height != null) args.height = height;
+    return this.sidecar!.client.op({ op: 'window', action: 'setRect', args });
+  }
+
+  async maximizeWindow() {
+    return this.sidecar!.client.op({ op: 'window', action: 'maximize' });
+  }
+
+  async minimizeWindow() {
+    return this.sidecar!.client.op({ op: 'window', action: 'minimize' });
+  }
+
+  // ── windows: app/session-level commands (nova2-compat) ────────────────────────────────────
+  async windowsCmd_launchApp(): Promise<unknown> {
+    return this.sidecar!.client.op({ op: 'app', action: 'launch' });
+  }
+
+  async windowsCmd_closeApp(): Promise<unknown> {
+    return this.sidecar!.client.op({ op: 'app', action: 'close' });
+  }
+
+  async windowsCmd_setProcessForeground(process: string): Promise<unknown> {
+    return this.sidecar!.client.op({ op: 'app', action: 'activate', process });
+  }
+
+  private typeDelayMs = 0;
+  async windowsCmd_typeDelay(delay: number): Promise<number> {
+    const previous = this.typeDelayMs;
+    this.typeDelayMs = delay; // advisory for now (FlaUI Keyboard has its own pacing)
+    return previous;
+  }
+
+  async windowsCmd_cacheRequest(..._args: unknown[]): Promise<unknown> {
+    return { done: true }; // accepted no-op: we build per-call requests, no global cache to reset
+  }
+
+  async windowsCmd_getPageSource(elementId?: string): Promise<string> {
+    const res = await this.sidecar!.client.op<{ source: string }>(sourceOp(elementId ?? 'root'));
+    return res.source;
   }
 
   /** Shared implementation for every `windows:<action>` element command. */
@@ -372,8 +480,11 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
 // and calls it with positional params, so each command must be a distinct method.
 for (const name of SUPPORTED_WINDOWS_COMMANDS) {
   Object.defineProperty(FlaUINativeDriver.prototype, `${WINDOWS_METHOD_PREFIX}${name}`, {
-    value: function (this: FlaUINativeDriver, elementId: string, value?: unknown) {
-      return this.runWindowsAction(name, elementId, value);
+    // Positional params: [elementId, <W3C element key>, value] — accept either element reference style.
+    value: function (this: FlaUINativeDriver, elementId?: string, w3cElement?: string, value?: unknown) {
+      const id = elementId ?? w3cElement;
+      if (!id) throw new Error(`windows: ${name} requires an elementId`);
+      return this.runWindowsAction(name, id, value);
     },
     writable: true,
     configurable: true,

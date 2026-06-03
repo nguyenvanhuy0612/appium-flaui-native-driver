@@ -21,6 +21,7 @@ AutomationBase? automation = null;
 OpInterpreter? interp = null;
 Application? launchedApp = null;   // set only when WE launched the app (not when attaching)
 var shouldCloseApp = true;
+string? appPath = null;            // remembered for `windows: launchApp`
 
 app.MapGet("/status", () => Results.Json(new { ok = true, ready = true }));
 
@@ -44,9 +45,15 @@ app.MapPost("/session", async (HttpRequest req) =>
             var hwnd = Convert.ToInt64(hex.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? hex[2..] : hex, 16);
             root = automation!.FromHandle(new IntPtr(hwnd));
         }
+        else if (caps.TryGetProperty("app", out var appEl) &&
+                 string.Equals(appEl.GetString(), "Root", StringComparison.OrdinalIgnoreCase))
+        {
+            // Desktop session: the whole desktop tree is the root (nova2's `app: 'Root'`).
+            root = automation!.GetDesktop();
+        }
         else
         {
-            var appPath = caps.GetProperty("app").GetString()!;
+            appPath = caps.GetProperty("app").GetString()!;
             var psi = new System.Diagnostics.ProcessStartInfo(appPath)
             {
                 Arguments = caps.TryGetProperty("appArguments", out var aa) ? aa.GetString() ?? string.Empty : string.Empty,
@@ -74,7 +81,10 @@ app.MapPost("/op", async (HttpRequest req) =>
 {
     using var doc = await JsonDocument.ParseAsync(req.Body);
     var op = doc.RootElement.Clone();
-    return await RunOp(() => op.GetProperty("op").GetString() switch
+    var kind = op.GetProperty("op").GetString();
+    // PowerShell runs out-of-scheduler (no UIA involved; may legitimately run longer than the watchdog).
+    if (kind == "powershell") return await RunPowerShell(op);
+    return await RunOp(() => kind switch
     {
         "find" => interp!.Find(op),
         "attributes" => interp!.Attributes(op),
@@ -83,9 +93,65 @@ app.MapPost("/op", async (HttpRequest req) =>
         "input" => interp!.Input(op),
         "screenshot" => interp!.Screenshot(op),
         "clipboard" => interp!.Clipboard(op),
+        "walk" => interp!.Walk(op),
+        "window" => interp!.Window(op),
+        "app" => HandleApp(op),
         var o => throw new NotSupportedException($"op not implemented: {o}"),
     });
 });
+
+object HandleApp(JsonElement op)
+{
+    var action = op.GetProperty("action").GetString();
+    switch (action)
+    {
+        case "launch":
+        {
+            if (string.IsNullOrEmpty(appPath)) throw new ArgumentException("no app was configured at session start");
+            launchedApp = Application.Launch(appPath);
+            var root = launchedApp.GetMainWindow(automation!);
+            return interp!.OpenSession(root); // re-root the session on the relaunched app
+        }
+        case "close":
+            if (launchedApp is not null) { try { launchedApp.Close(); } catch { /* best effort */ } }
+            else interp?.CloseRootWindow();
+            return new { done = true };
+        case "activate":
+        {
+            var name = op.GetProperty("process").GetString()!;
+            name = name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? name[..^4] : name;
+            var proc = System.Diagnostics.Process.GetProcessesByName(name)
+                           .FirstOrDefault(p => p.MainWindowHandle != IntPtr.Zero)
+                       ?? throw new ArgumentException($"no process with a main window: {name}");
+            automation!.FromHandle(proc.MainWindowHandle).Focus();
+            return new { done = true };
+        }
+        default: throw new ArgumentException($"unsupported app action: {action}");
+    }
+}
+
+async Task<IResult> RunPowerShell(JsonElement op)
+{
+    try
+    {
+        var script = op.GetProperty("script").GetString()!;
+        var psi = new System.Diagnostics.ProcessStartInfo("powershell.exe", "-NoProfile -NonInteractive -Command -")
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        using var p = System.Diagnostics.Process.Start(psi)!;
+        await p.StandardInput.WriteAsync(script);
+        p.StandardInput.Close();
+        var stdout = await p.StandardOutput.ReadToEndAsync();
+        var stderr = await p.StandardError.ReadToEndAsync();
+        await p.WaitForExitAsync();
+        return Results.Json(new { ok = true, value = new { stdout, stderr, exitCode = p.ExitCode } });
+    }
+    catch (Exception ex) { return Err("unknown error", ex.Message); }
+}
 
 // Every UIA-touching op runs on the scheduler's dedicated worker, bounded by the watchdog (layer 2),
 // and all exceptions are mapped to W3C error envelopes here.
