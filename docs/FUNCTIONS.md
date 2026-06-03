@@ -7,7 +7,7 @@ matches another Windows driver, that is a deliberate compatibility alias, noted 
 Status: ✅ implemented & **verified on a real Windows machine** · 🟡 implemented, not yet individually
 verified · ⬜ planned · ⏸ out of scope by decision.
 
-_Last updated 2026-06-03._
+_Last updated 2026-06-03. Current published: `0.1.0-beta.6` (npm tag `beta`, win-x64); Phase A shipped in beta.4._
 
 ---
 
@@ -86,7 +86,7 @@ evaluate in TS over bulk-fetched attributes. Positional semantics (`//X[1]` vs `
 | `POST /element/:id/value` | setValue (ValuePattern) | ✅ |
 | `POST /element/:id/clear` | clear | ✅ |
 | `GET /element/:id/text` | getText — TextPattern.DocumentRange.GetText → ValuePattern.Value → Name → LegacyIAccessible.Value | ✅ |
-| `GET /element/:id/attribute/:name` · `/property/:name` | getAttribute / getProperty — **full UIA resolution** (Phase A): any direct property; **pattern dot-notation** (`Value.Value`, `Toggle.ToggleState`, `Window.CanMaximize`, `RangeValue.*`, `Scroll.*`, `Grid.*`, …); **`LegacyIAccessible.*`** + `legacy*` aliases (`Role`/`State` as `"text (0xHEX)"`); **`Is<Pattern>PatternAvailable`** flags; `ProviderDescription`, `IsDialog`, `BoundingRectangle` `{x,y,width,height}`. Matches inspect.exe. W3C values are strings; unsupported name → `null`. | ✅ |
+| `GET /element/:id/attribute/:name` · `/property/:name` | getAttribute / getProperty — **full UIA resolution** (Phase A): any direct property; **pattern dot-notation** (`Value.Value`, `Toggle.ToggleState`, `Window.CanMaximize`, `RangeValue.*`, `Scroll.*`, `Grid.*`, …); **`LegacyIAccessible.*`** + `legacy*` aliases (`Role`/`State` as `"text (0xHEX)"`); **`Is<Pattern>PatternAvailable`** flags; `ProviderDescription`, `IsDialog`, `BoundingRectangle` `{x,y,width,height}`. Matches inspect.exe. W3C values are strings; unsupported name → `null`. `name='all'` → full ~70-attr dump as a **JSON string** (object form via `execute('windows: getAttributes')`). | ✅ |
 | `GET /element/:id/name` | getName → tag (ControlType) | ✅ |
 | `GET /element/:id/rect` | getElementRect | ✅ |
 | `GET /element/:id/enabled` · `/displayed` · `/selected` | element state | ✅ |
@@ -96,7 +96,7 @@ evaluate in TS over bulk-fetched attributes. Positional semantics (`//X[1]` vs `
 | `GET /window` · `/window/handles` | getWindowHandle(s) | ✅ |
 | `GET/POST /window/rect` | get/setWindowRect (TransformPattern) | ✅ |
 | `POST /window/maximize` · `/minimize` | maximize/minimizeWindow | ✅ |
-| `POST /session/:id/actions` · `DELETE` | performActions / releaseActions — pointer (move/down/up; viewport/pointer/element origins) + key (specials→VK, printables) + pause | ✅ |
+| `POST /session/:id/actions` · `DELETE` | performActions / releaseActions — pointer (move/down/up; viewport/pointer/element origins) + key + pause. Key map (`W3C_KEY_TO_VK`) covers printables, the original non-printables, **plus Meta/Windows (U+E03D→VK 0x5B), Home/End/PageUp/PageDown, and F1–F12**; Shift+printable yields uppercase. | ✅ |
 | `POST /session/:id/execute/sync` | execute → extension commands (§5) & scripts (§6) | ✅ |
 | `POST /appium/device/push_file` · `pull_file` · `pull_folder` | pushFile / pullFile / pullFolder (base64; folder → ZIP) | ✅ |
 | `GET /window_handle` (focused el), `getDeviceTime` | — | ⬜ |
@@ -135,7 +135,7 @@ Element args accept `{elementId}` or the W3C element object.
 
 | Script | Status | Security |
 |---|---|---|
-| `powershell` `{script}` → stdout | ✅ | requires `flauinative:power_shell`. Bounded: child process killed (whole tree) after `powerShellCommandTimeout` ms (default 60000) → W3C `timeout`. |
+| `powershell` `{script}` → stdout | ✅ | requires `flauinative:power_shell`. Bounded: child process killed (whole tree) after a **per-call `timeoutMs` arg → `powerShellCommandTimeout` cap → 60000** ms default → W3C `timeout`. Runs out-of-scheduler, so `flaui:operationTimeout` does NOT bound it; `timeoutMs`/`powerShellCommandTimeout` is the only bound. |
 | `pullFile` `{path}` / `pushFile` `{path,data}` / `pullFolder` `{path}` | ✅ | `flauinative:pull_file` / `push_file` |
 
 **Enabling insecure features (Appium 3).** Recommended for isolated VMs (ADR-015): enable everything with
@@ -187,4 +187,4 @@ session-stress run is **deferred** (per user).
 | win-arm64 prebuilt | 🟡 cross-built clean (~195 MB); not yet run-verified on ARM hardware |
 | Windows Server (Desktop Experience) support | 🟡 declared (no OS-version gate); Server Core ⏸ unsupported |
 | typeDelay/smoothPointerMove/delay* effects | ⬜ |
-| W3C-first own test suite | ✅ unit 110, smoke 1/1, **e2e 69/69** on the Windows box |
+| W3C-first own test suite | ✅ unit 121, smoke 1/1, **e2e 75/75** on the Windows box; 16/16 core-function live E2E re-verified for beta.4/beta.5 |

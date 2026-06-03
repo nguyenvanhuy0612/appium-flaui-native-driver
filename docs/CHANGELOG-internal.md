@@ -5,6 +5,71 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — 🏁 v0.1.0-beta.6: restore `appium` peer dependency (revert beta.5)
+
+> **Published to npm** (from the .44 Windows box, from-source build; dist-tag `beta`, win-x64):
+> `appium-flaui-native-driver@0.1.0-beta.6`. dist-tags now `latest=0.1.0-beta.1`, `beta=0.1.0-beta.6`.
+
+- **Reverted beta.5.** Dropping the `appium` peerDependency turned out to be a net negative: Appium 3.2.2
+  emits a warning *"Driver flauinative may be incompatible … due to an invalid or missing peer dependency on
+  Appium"* when it is absent, and removing it did **not** remove the `appium` junction (the CLI creates that
+  regardless). Restored `peerDependencies:{appium:^3.0.0}` + `peerDependenciesMeta:{appium:{optional:true}}`
+  (the beta.3/beta.4 state, which is warning-free).
+- **Lesson:** the `appium` entry in a driver's `node_modules` is a CLI-created junction, not controllable via
+  `package.json`; declare the appium peer dependency so Appium's compatibility check passes.
+- **Verified on .37:** wiped `.appium\node_modules` and reinstalled ONLY `flauinative@0.1.0-beta.6` — no
+  peer-dependency warning, ~43.7 MB deps + 180 MB sidecar.
+
+---
+
+## 2026-06-03 (cont.) — 🏁 v0.1.0-beta.5: drop `appium` peer dependency (superseded by beta.6)
+
+> **Published to npm** (from the .44 Windows box, from-source build; dist-tag `beta`, win-x64):
+> `appium-flaui-native-driver@0.1.0-beta.5`. dist-tags now `latest=0.1.0-beta.1`, `beta=0.1.0-beta.5`.
+
+- **Dropped `appium`** from `peerDependencies` + `peerDependenciesMeta`. Harmless no-op for disk: the
+  `appium` entry inside an installed driver's `node_modules` is a **0-byte Windows junction** to the global
+  appium (`AppData\Roaming\npm\node_modules\appium`) created by the Appium CLI itself — NOT bloat, and NOT
+  removable via `package.json`. Real install footprint ≈ **43.7 MB** of `@appium/base-driver` deps
+  (sharp/libvips ≈ 19.5 MB is the bulk) + the ~180 MB self-contained sidecar exe.
+- **Verified clean on .37:** fully wiped and reinstalled with ONLY `flauinative@0.1.0-beta.5` → confirmed
+  ~43.7 MB deps + 180 MB sidecar; `appium` = junction.
+- **Process rule:** NEVER publish from the Mac — `prebuilt/` is gitignored (→ empty package). Publish only
+  from a Windows from-source build, and verify the tarball contains `prebuilt/win-x64/FlaUiSidecar.exe`.
+
+---
+
+## 2026-06-03 (cont.) — 🏁 v0.1.0-beta.4: Phase A SHIPPED + Actions key map + powershell timeoutMs
+
+> **Published to npm** (from the .44 Windows box, from-source build; dist-tag `beta`, win-x64):
+> `appium-flaui-native-driver@0.1.0-beta.4`. This is the first **published** build carrying all of Phase A
+> (the two entries below were committed-but-not-published candidates; beta.4 ships them, all verified live).
+
+- **Phase A complete AND shipped:** full getProperty/getAttribute resolution — UIA pattern dot-notation
+  (`Value.Value`, `Toggle.ToggleState`, `RangeValue.*`, `Window.*`, …), `LegacyIAccessible.*` + `legacy*`
+  shorthand aliases, `Is<Pattern>PatternAvailable` flags, `ProviderDescription`/`IsDialog`, fixed
+  `BoundingRectangle`; getText precedence (TextPattern→Value→Name→Legacy); setValue keyboard-typing
+  fallback; click via ClickablePoint+scrollIntoView; full `windows:` input arg parity. All verified live.
+- **`getAttribute('all')` / `getProperty('all')` fix:** was sending `names:['all']` (array) → null; now
+  sends `'all'` (string) → full dump (70 attrs), returned as a **JSON string** per W3C. Object form via
+  `execute('windows: getAttributes')`.
+- **W3C Actions key map expanded** (`lib/driver.ts` `W3C_KEY_TO_VK`): added **Meta/Windows** key
+  (U+E03D→VK `0x5B`), **Home/End/PageUp/PageDown**, and **F1–F12**. Previously only 14 non-printable keys
+  were mapped, so the Windows key could NOT be sent via the W3C Actions path (it typed a garbage char).
+  Verified live: Actions `'abc'+Home+'X'` => `'Xabc'`; Shift+text and Shift+printable produce uppercase via
+  both `windows: keys` and Actions.
+- **`powershell` per-call timeout:** `execute('powershell', {script|command, timeoutMs})` now honors a
+  per-call `timeoutMs`, falling back to the `powerShellCommandTimeout` capability, then the sidecar's 60s
+  default. PowerShell runs out-of-scheduler, so `flaui:operationTimeout` does NOT bound it —
+  `powerShellCommandTimeout`/`timeoutMs` is the only bound.
+- **Docs:** README rewritten as a user-facing guide (nova-style, FlaUI-accurate); `docs/CLEAN-REINSTALL.md`
+  added. README doc fixes: `windows: click` buttons are left/middle/right only (back/forward rejected by the
+  sidecar); clickAndDrag/hover `durationMs` default is 0 (instant); scroll `amount` default 1; `id` locator
+  is an AutomationId alias (the dotted RuntimeId is the returned element identity).
+- **Verified this session:** 16/16 core-function live E2E on .44.
+
+---
+
 ## 2026-06-03 (cont.) — Phase A COMPLETE: getText/click/args + packaging slim (not published)
 
 - **getText** precedence (FlaUI): `TextPattern.DocumentRange.GetText` -> `ValuePattern.Value` -> `Name` ->
