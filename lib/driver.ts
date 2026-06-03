@@ -418,9 +418,10 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   }
 
   async getText(elementId: string): Promise<string> {
-    // Prefer ValuePattern text (e.g. Edit/Document content); fall back to the Name property.
-    const res = await this.op<Record<string, unknown>>(attributesOp(elementId, ['Value', 'Name']));
-    const v = res.Value ?? res.Name;
+    // W3C "Get Element Text". The sidecar resolves the synthetic "Text" attribute with FlaUI-native
+    // precedence: TextPattern.DocumentRange.GetText → ValuePattern.Value → Name → LegacyIAccessible.Value.
+    const res = await this.op<Record<string, unknown>>(attributesOp(elementId, ['Text']));
+    const v = res.Text;
     return v == null ? '' : String(v);
   }
 

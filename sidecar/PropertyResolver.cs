@@ -218,6 +218,7 @@ public static class PropertyResolver
         value = name switch
         {
             "Name" => NameWithLegacyFallback(el),
+            "Text" => GetText(el),
             "AutomationId" => el.Properties.AutomationId.ValueOrDefault,
             "ClassName" => el.Properties.ClassName.ValueOrDefault,
             "ControlType" => el.Properties.ControlType.ValueOrDefault.ToString(),
@@ -268,6 +269,56 @@ public static class PropertyResolver
         if (!string.IsNullOrEmpty(v)) return v;
         var legacy = el.Patterns.LegacyIAccessible.PatternOrDefault?.Value.ValueOrDefault;
         return string.IsNullOrEmpty(legacy) ? v : legacy;
+    }
+
+    /// <summary>W3C "Get Element Text" (GET /element/:id/text). FlaUI-native precedence:
+    ///   1. TextPattern.DocumentRange.GetText(-1) — the rendered text of text/document controls
+    ///      (Edit/Document/RichEdit); -1 = no length cap.
+    ///   2. ValuePattern.Value — editable controls that expose a value but no TextPattern.
+    ///   3. Name — labels, buttons, and most other controls (a Button's caption IS its Name).
+    ///   4. LegacyIAccessible.Value — Win32/MSAA-only controls whose value never reaches UIA.
+    /// Returns "" rather than null so the W3C endpoint always answers a string. Each step is wrapped so an
+    /// unsupported/throwing pattern degrades to the next instead of failing the whole read.</summary>
+    internal static string GetText(AutomationElement el)
+    {
+        // 1. TextPattern (text & document controls).
+        try
+        {
+            var tp = el.Patterns.Text.PatternOrDefault;
+            var doc = tp?.DocumentRange;
+            if (doc is not null)
+            {
+                var t = doc.GetText(-1);
+                if (!string.IsNullOrEmpty(t)) return t;
+            }
+        }
+        catch { /* fall through */ }
+
+        // 2. ValuePattern.Value.
+        try
+        {
+            var v = el.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault;
+            if (!string.IsNullOrEmpty(v)) return v;
+        }
+        catch { /* fall through */ }
+
+        // 3. Name.
+        try
+        {
+            var n = el.Properties.Name.ValueOrDefault;
+            if (!string.IsNullOrEmpty(n)) return n;
+        }
+        catch { /* fall through */ }
+
+        // 4. LegacyIAccessible.Value.
+        try
+        {
+            var legacy = el.Patterns.LegacyIAccessible.PatternOrDefault?.Value.ValueOrDefault;
+            if (!string.IsNullOrEmpty(legacy)) return legacy;
+        }
+        catch { /* fall through */ }
+
+        return string.Empty;
     }
 
     private static object? SafeBool(Func<bool> f)

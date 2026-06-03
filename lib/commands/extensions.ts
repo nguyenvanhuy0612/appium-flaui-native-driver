@@ -60,12 +60,25 @@ export function buildWindowsCommandOp(
  */
 export const INPUT_COMMANDS: Readonly<Record<string, { params: { required: string[]; optional: string[] } }>> =
   Object.freeze({
-    click: { params: { required: [], optional: ['elementId', 'x', 'y', 'button', 'times'] } },
-    hover: { params: { required: [], optional: ['elementId', 'x', 'y'] } },
-    scroll: { params: { required: [], optional: ['elementId', 'x', 'y', 'deltaX', 'deltaY'] } },
+    click: {
+      params: {
+        required: [],
+        optional: ['elementId', 'x', 'y', 'button', 'times', 'modifierKeys', 'durationMs', 'interClickDelayMs'],
+      },
+    },
+    hover: { params: { required: [], optional: ['elementId', 'x', 'y', 'modifierKeys', 'durationMs'] } },
+    scroll: {
+      params: { required: [], optional: ['elementId', 'x', 'y', 'deltaX', 'deltaY', 'amount', 'modifierKeys'] },
+    },
     keys: { params: { required: ['actions'], optional: [] } },
     clickAndDrag: {
-      params: { required: [], optional: ['startElementId', 'startX', 'startY', 'endElementId', 'endX', 'endY'] },
+      params: {
+        required: [],
+        optional: [
+          'startElementId', 'startX', 'startY', 'endElementId', 'endX', 'endY',
+          'button', 'durationMs', 'modifierKeys',
+        ],
+      },
     },
   });
 

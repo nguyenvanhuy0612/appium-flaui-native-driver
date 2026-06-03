@@ -236,17 +236,47 @@ public sealed class OpInterpreter
             {
                 BasicBringOnTopFromArgs(args);   // nova2 parity: focus the Window/Pane ancestor first
                 var pt = ResolvePoint(args);
-                var button = args.TryGetProperty("button", out var b) && b.GetString() == "right"
-                    ? MouseButton.Right : MouseButton.Left;
+                var button = ButtonOf(args);
                 var times = args.TryGetProperty("times", out var t) ? t.GetInt32() : 1;
+                var durationMs = args.TryGetProperty("durationMs", out var dm) ? dm.GetInt32() : 0;
+                var interClickDelayMs = args.TryGetProperty("interClickDelayMs", out var ic) ? ic.GetInt32() : 100;
+                var mods = ModifiersOf(args);
                 Mouse.MoveTo(pt);
-                for (var i = 0; i < times; i++) Mouse.Click(button);
+                PressModifiers(mods);
+                try
+                {
+                    for (var i = 0; i < times; i++)
+                    {
+                        if (i != 0 && interClickDelayMs > 0) Thread.Sleep(interClickDelayMs);
+                        if (durationMs > 0)
+                        {
+                            Mouse.Down(button);
+                            try { Thread.Sleep(durationMs); } finally { Mouse.Up(button); }
+                        }
+                        else
+                        {
+                            Mouse.Click(button);
+                        }
+                    }
+                }
+                finally { ReleaseModifiers(mods); }
                 return new { done = true };
             }
             case "hover":
+            {
                 BasicBringOnTopFromArgs(args);
-                Mouse.MoveTo(ResolvePoint(args));
+                var mods = ModifiersOf(args);
+                PressModifiers(mods);
+                try
+                {
+                    Mouse.MoveTo(ResolvePoint(args));
+                    // durationMs: dwell at the target so hover tooltips/menus settle (nova2 default 500).
+                    var durationMs = args.TryGetProperty("durationMs", out var dm) ? dm.GetInt32() : 0;
+                    if (durationMs > 0) Thread.Sleep(durationMs);
+                }
+                finally { ReleaseModifiers(mods); }
                 return new { done = true };
+            }
             case "move":   // raw W3C-Actions move: caller controls foreground; do NOT auto-focus here
                 Mouse.MoveTo(ResolvePoint(args));
                 return new { done = true };
@@ -260,10 +290,18 @@ public sealed class OpInterpreter
             {
                 if (args.TryGetProperty("elementId", out _) || args.TryGetProperty("x", out _))
                     Mouse.MoveTo(ResolvePoint(args));
-                var dy = args.TryGetProperty("deltaY", out var dyv) ? dyv.GetDouble() : 0;
-                var dx = args.TryGetProperty("deltaX", out var dxv) ? dxv.GetDouble() : 0;
-                if (dy != 0) Mouse.Scroll(dy);
-                if (dx != 0) Mouse.HorizontalScroll(dx);
+                // `amount` (optional) multiplies the delta (nova2 passes raw deltas; amount is a convenience).
+                var amount = args.TryGetProperty("amount", out var av) ? av.GetDouble() : 1;
+                var dy = (args.TryGetProperty("deltaY", out var dyv) ? dyv.GetDouble() : 0) * amount;
+                var dx = (args.TryGetProperty("deltaX", out var dxv) ? dxv.GetDouble() : 0) * amount;
+                var mods = ModifiersOf(args);
+                PressModifiers(mods);
+                try
+                {
+                    if (dy != 0) Mouse.Scroll(dy);
+                    if (dx != 0) Mouse.HorizontalScroll(dx);
+                }
+                finally { ReleaseModifiers(mods); }
                 return new { done = true };
             }
             case "keys":
@@ -294,7 +332,31 @@ public sealed class OpInterpreter
                     BasicBringOnTop(ResolveOrThrow(sids));
                 var from = ResolvePointPrefixed(args, "start");
                 var to = ResolvePointPrefixed(args, "end");
-                Mouse.Drag(from, to);
+                var button = ButtonOf(args);
+                var durationMs = args.TryGetProperty("durationMs", out var dm) ? dm.GetInt32() : 0;
+                var mods = ModifiersOf(args);
+                Mouse.MoveTo(from);
+                PressModifiers(mods);
+                try
+                {
+                    if (button == MouseButton.Left && durationMs <= 0)
+                    {
+                        // Fast path: FlaUI's built-in left-button drag.
+                        Mouse.Drag(from, to);
+                    }
+                    else
+                    {
+                        // Generic press → (hold) → move → release for non-left buttons / timed drags.
+                        Mouse.Down(button);
+                        try
+                        {
+                            if (durationMs > 0) Thread.Sleep(durationMs);
+                            Mouse.MoveTo(to);
+                        }
+                        finally { Mouse.Up(button); }
+                    }
+                }
+                finally { ReleaseModifiers(mods); }
                 return new { done = true };
             }
             default: throw new ArgumentException($"unsupported input kind: {kind}");
@@ -341,7 +403,50 @@ public sealed class OpInterpreter
     }
 
     private static MouseButton ButtonOf(JsonElement args) =>
-        args.TryGetProperty("button", out var b) && b.GetString() == "right" ? MouseButton.Right : MouseButton.Left;
+        args.TryGetProperty("button", out var b) ? ParseButton(b.GetString()) : MouseButton.Left;
+
+    private static MouseButton ParseButton(string? name) => (name?.ToLowerInvariant()) switch
+    {
+        "right" => MouseButton.Right,
+        "middle" => MouseButton.Middle,
+        null or "" or "left" => MouseButton.Left,
+        _ => throw new InvalidArgumentException(
+            $"invalid button '{name}'. Supported values are 'left', 'middle', 'right'."),
+    };
+
+    // ── modifier keys (ctrl|shift|alt|win) held around an input op (nova2 parity) ────────────────
+    // Accepts a JSON array of names or a comma-separated string. Press before, Release (reverse) after.
+    private static VirtualKeyShort[] ModifiersOf(JsonElement args)
+    {
+        if (!args.TryGetProperty("modifierKeys", out var m)) return Array.Empty<VirtualKeyShort>();
+        IEnumerable<string> names = m.ValueKind switch
+        {
+            JsonValueKind.Array => m.EnumerateArray().Select(e => e.GetString() ?? string.Empty),
+            JsonValueKind.String => (m.GetString() ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+            _ => Array.Empty<string>(),
+        };
+        return names.Select(MapModifier).ToArray();
+    }
+
+    private static VirtualKeyShort MapModifier(string name) => name.Trim().ToLowerInvariant() switch
+    {
+        "ctrl" or "control" => VirtualKeyShort.CONTROL,
+        "shift" => VirtualKeyShort.SHIFT,
+        "alt" or "menu" => VirtualKeyShort.ALT,
+        "win" or "meta" or "windows" => VirtualKeyShort.LWIN,
+        _ => throw new InvalidArgumentException(
+            $"invalid modifier key '{name}'. Supported values are 'ctrl', 'shift', 'alt', 'win'."),
+    };
+
+    private static void PressModifiers(VirtualKeyShort[] mods)
+    {
+        foreach (var k in mods) Keyboard.Press(k);
+    }
+
+    private static void ReleaseModifiers(VirtualKeyShort[] mods)
+    {
+        for (var i = mods.Length - 1; i >= 0; i--) Keyboard.Release(mods[i]);
+    }
 
     /// <summary>PNG screenshot (base64) of an element, or of the session root when no id is given.</summary>
     public object Screenshot(JsonElement op)
@@ -432,32 +537,49 @@ public sealed class OpInterpreter
         }
     }
 
-    private System.Drawing.Point ResolvePoint(JsonElement args)
-    {
-        if (args.TryGetProperty("elementId", out var id) && id.GetString() is { Length: > 0 } s)
-        {
-            var el = ResolveOrThrow(s);
-            var r = el.Properties.BoundingRectangle.ValueOrDefault;
-            var x = args.TryGetProperty("x", out var xv) ? r.X + xv.GetInt32() : r.X + r.Width / 2;
-            var y = args.TryGetProperty("y", out var yv) ? r.Y + yv.GetInt32() : r.Y + r.Height / 2;
-            return new System.Drawing.Point(x, y);
-        }
-        return new System.Drawing.Point(args.GetProperty("x").GetInt32(), args.GetProperty("y").GetInt32());
-    }
+    private System.Drawing.Point ResolvePoint(JsonElement args) => ResolvePointPrefixed(args, string.Empty);
 
+    /// <summary>Resolve a target point for input. With an element id (prefix"" / "start" / "end"):
+    /// best-effort <c>ScrollItem.ScrollIntoView()</c> first (bring it into view), then — when no explicit
+    /// x/y offset was supplied — use <c>el.TryGetClickablePoint()</c> for the truly clickable point, falling
+    /// back to the BoundingRectangle center. An explicit x/y offset is always taken relative to the rect's
+    /// top-left (nova2 semantics). Without an element id, x/y are absolute screen coordinates.</summary>
     private System.Drawing.Point ResolvePointPrefixed(JsonElement args, string prefix)
     {
-        if (args.TryGetProperty($"{prefix}ElementId", out var id) && id.GetString() is { Length: > 0 } s)
+        var elKey = prefix.Length == 0 ? "elementId" : $"{prefix}ElementId";
+        var xKey = prefix.Length == 0 ? "x" : $"{prefix}X";
+        var yKey = prefix.Length == 0 ? "y" : $"{prefix}Y";
+
+        if (args.TryGetProperty(elKey, out var id) && id.GetString() is { Length: > 0 } s)
         {
             var el = ResolveOrThrow(s);
+            // Best-effort: bring the element into view before locating its point.
+            try { el.Patterns.ScrollItem.PatternOrDefault?.ScrollIntoView(); } catch { /* best effort */ }
+
+            var hasX = args.TryGetProperty(xKey, out var xv);
+            var hasY = args.TryGetProperty(yKey, out var yv);
             var r = el.Properties.BoundingRectangle.ValueOrDefault;
-            var x = args.TryGetProperty($"{prefix}X", out var xv) ? r.X + xv.GetInt32() : r.X + r.Width / 2;
-            var y = args.TryGetProperty($"{prefix}Y", out var yv) ? r.Y + yv.GetInt32() : r.Y + r.Height / 2;
+
+            // No explicit offset → prefer the UIA clickable point (handles odd shapes / partial occlusion),
+            // else fall back to the rect center (previous behavior).
+            if (!hasX && !hasY)
+            {
+                try
+                {
+                    if (el.TryGetClickablePoint(out var cp))
+                        return new System.Drawing.Point(cp.X, cp.Y);
+                }
+                catch { /* fall through to rect center */ }
+                return new System.Drawing.Point(r.X + r.Width / 2, r.Y + r.Height / 2);
+            }
+
+            var x = hasX ? r.X + xv.GetInt32() : r.X + r.Width / 2;
+            var y = hasY ? r.Y + yv.GetInt32() : r.Y + r.Height / 2;
             return new System.Drawing.Point(x, y);
         }
         return new System.Drawing.Point(
-            args.GetProperty($"{prefix}X").GetInt32(),
-            args.GetProperty($"{prefix}Y").GetInt32());
+            args.GetProperty(xKey).GetInt32(),
+            args.GetProperty(yKey).GetInt32());
     }
 
     /// <summary>Page source as XML, built in one CacheRequest pass (Phase 2). Schema must match nova2.</summary>
