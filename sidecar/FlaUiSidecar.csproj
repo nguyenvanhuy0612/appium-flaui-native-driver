@@ -16,5 +16,7 @@
   <ItemGroup>
     <PackageReference Include="FlaUI.UIA3" Version="4.0.0" />
     <PackageReference Include="FlaUI.UIA2" Version="4.0.0" />
+    <!-- Clipboard without WinForms (works with the Web SDK). -->
+    <PackageReference Include="TextCopy" Version="6.2.1" />
   </ItemGroup>
 </Project>

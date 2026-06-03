@@ -110,6 +110,43 @@ async function mainFlow() {
     });
     console.log('[scroll/hover]', sc.status, hv.status);
 
+    // W3C Actions API: pointer click on the Edit, then key actions type "xyz".
+    await call('POST', `/session/${sid}/element/${E}/clear`);
+    const act = await call('POST', `/session/${sid}/actions`, {
+      actions: [
+        { type: 'pointer', id: 'mouse1', parameters: { pointerType: 'mouse' }, actions: [
+          { type: 'pointerMove', origin: { [W3C_KEY]: elId }, x: 0, y: 0 },
+          { type: 'pointerDown', button: 0 },
+          { type: 'pointerUp', button: 0 },
+        ] },
+        { type: 'key', id: 'kb1', actions: [
+          { type: 'keyDown', value: 'x' }, { type: 'keyUp', value: 'x' },
+          { type: 'keyDown', value: 'y' }, { type: 'keyUp', value: 'y' },
+          { type: 'keyDown', value: 'z' }, { type: 'keyUp', value: 'z' },
+        ] },
+      ],
+    });
+    const av = await call('GET', `/session/${sid}/element/${E}/attribute/Value`);
+    console.log('[actions]', act.status, '->Value', JSON.stringify(av.data?.value));
+
+    // Screenshots (PNG base64).
+    const shot = await call('GET', `/session/${sid}/screenshot`);
+    const eshot = await call('GET', `/session/${sid}/element/${E}/screenshot`);
+    const pngOk = typeof shot.data?.value === 'string' && shot.data.value.startsWith('iVBOR') && shot.data.value.length > 1000;
+    const epngOk = typeof eshot.data?.value === 'string' && eshot.data.value.startsWith('iVBOR');
+    console.log('[screenshot]', shot.status, pngOk, '[element-shot]', eshot.status, epngOk);
+
+    // Clipboard roundtrip (plaintext base64).
+    const clipB64 = Buffer.from('clip-hello').toString('base64');
+    const setc = await call('POST', `/session/${sid}/execute/sync`, {
+      script: 'windows: setClipboard', args: [{ b64: clipB64 }],
+    });
+    const getc = await call('POST', `/session/${sid}/execute/sync`, {
+      script: 'windows: getClipboard', args: [{}],
+    });
+    const clipOk = getc.data?.value === clipB64;
+    console.log('[clipboard]', setc.status, getc.status, clipOk);
+
     pass =
       el.status === 200 && !!elId && xml.length > 0 && schemaOk &&
       a1.data?.value === T1 &&
@@ -123,7 +160,10 @@ async function mainFlow() {
       gv.status === 200 && gv.data?.value?.value === T3 &&
       clk.status === 200 && hf.data?.value === 'true' &&
       ks.status === 200 && kv.data?.value === 'typed-via-keys' &&
-      sc.status === 200 && hv.status === 200;
+      sc.status === 200 && hv.status === 200 &&
+      act.status === 200 && av.data?.value === 'xyz' &&
+      shot.status === 200 && pngOk && eshot.status === 200 && epngOk &&
+      setc.status === 200 && getc.status === 200 && clipOk;
   } catch (e) {
     console.log('MAIN_ERROR', e?.message || String(e));
   } finally {

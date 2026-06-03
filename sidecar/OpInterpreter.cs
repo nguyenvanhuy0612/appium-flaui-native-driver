@@ -145,7 +145,14 @@ public sealed class OpInterpreter
                 return new { done = true };
             }
             case "hover":
+            case "move":
                 Mouse.MoveTo(ResolvePoint(args));
+                return new { done = true };
+            case "down":
+                Mouse.Down(ButtonOf(args));
+                return new { done = true };
+            case "up":
+                Mouse.Up(ButtonOf(args));
                 return new { done = true };
             case "scroll":
             {
@@ -184,6 +191,35 @@ public sealed class OpInterpreter
             }
             default: throw new ArgumentException($"unsupported input kind: {kind}");
         }
+    }
+
+    private static MouseButton ButtonOf(JsonElement args) =>
+        args.TryGetProperty("button", out var b) && b.GetString() == "right" ? MouseButton.Right : MouseButton.Left;
+
+    /// <summary>PNG screenshot (base64) of an element, or of the session root when no id is given.</summary>
+    public object Screenshot(JsonElement op)
+    {
+        var el = op.TryGetProperty("id", out var id) && id.GetString() is { Length: > 0 } s
+            ? ResolveOrThrow(s)
+            : _root!;
+        using var img = FlaUI.Core.Capturing.Capture.Element(el);
+        using var ms = new MemoryStream();
+        img.Bitmap.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+        return new { data = Convert.ToBase64String(ms.ToArray()) };
+    }
+
+    /// <summary>Plaintext clipboard get/set (base64-encoded UTF-8, nova2-style). Image support: later.</summary>
+    public object Clipboard(JsonElement op)
+    {
+        var action = op.GetProperty("action").GetString();
+        if (action == "set")
+        {
+            var text = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(op.GetProperty("b64").GetString()!));
+            TextCopy.ClipboardService.SetText(text);
+            return new { done = true };
+        }
+        var t = TextCopy.ClipboardService.GetText() ?? string.Empty;
+        return new { b64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(t)) };
     }
 
     private System.Drawing.Point ResolvePoint(JsonElement args)

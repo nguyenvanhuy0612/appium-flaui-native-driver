@@ -25,11 +25,11 @@ _Last updated 2026-06-03._
 | elementDisplayed | ✅ | !IsOffscreen |
 | elementSelected | ✅ | SelectionItem.IsSelected (false when pattern unsupported) |
 | getProperty | 🟡 | alias of getAttribute |
-| getScreenshot | ⬜ | UIA/GDI capture (later) |
-| getElementScreenshot | ⬜ | later |
+| getScreenshot | ✅ | FlaUI Capture → PNG base64 |
+| getElementScreenshot | ✅ | FlaUI Capture.Element → PNG base64 |
 | getWindowRect | ⬜ | later |
 | active (activeElement) | ⬜ | → FocusedElement (later) |
-| performActions / releaseActions | ⬜ | W3C Actions / input (Phase 5) |
+| performActions / releaseActions | ✅ | subset: sequential sources, mouse pointer (move/down/up, element-center origin), keys (specials via VK, printables typed on keyDown) |
 | pullFile / pushFile / pullFolder | ⬜ | scoped insecure feature (ADR-008), later |
 
 ## Locator strategies
@@ -49,11 +49,12 @@ _Last updated 2026-06-03._
 **Implemented (24):** invoke, expand, collapse, toggle, select, addToSelection, removeFromSelection,
 setFocus, scrollIntoView, **setValue ✅**, maximize, minimize, restore, close (🟡), reads:
 **getValue ✅**, isMultiple 🟡, selectedItem 🟡, allSelectedItems 🟡, getAttributes 🟡, and input
-(FlaUI.Core.Input, ADR-005 rev.1): **keys ✅**, **click ✅**, **hover ✅**, **scroll ✅**, clickAndDrag 🟡.
+(FlaUI.Core.Input, ADR-005 rev.1): **keys ✅**, **click ✅**, **hover ✅**, **scroll ✅**, clickAndDrag 🟡,
+plus **getClipboard ✅ / setClipboard ✅** (plaintext base64; image content: later).
 
-**Not yet (11):**
+**Not yet (9):**
 - *Input options:* typeDelay.
-- *Clipboard:* getClipboard, setClipboard.
+
 - *App/window/process:* launchApp, closeApp, setProcessForeground.
 - *Session scoping:* cacheRequest, scopeSession, resetSessionRoot.
 - *Recording (scoped insecure):* startRecordingScreen, stopRecordingScreen.
@@ -83,18 +84,14 @@ setFocus, scrollIntoView, **setValue ✅**, maximize, minimize, restore, close (
 
 ## Summary
 
-Core session + find (incl. tag name) + page source + the read/write element surface (setValue/clear/
-getAttribute/getText/rect/enabled/displayed/selected) + execute (`windows:` setValue/getValue) are
-**verified on real Windows**. Remaining gaps: (a) input (keys/click/hover/scroll/clickAndDrag — Phase 5);
-(b) clipboard, app-lifecycle (launchApp/closeApp/setProcessForeground), session scoping (cacheRequest/
-scopeSession/resetSessionRoot); (c) screenshots + recording; (d) attach-to-window capabilities
-(`appTopLevelWindow`, `appArguments`, `shouldCloseApp`, ...); (e) page-source schema parity + rawView;
-(f) `-windows uiautomation` raw-condition strategy. PowerShell-only features are intentionally not ported.
+**Verified on real Windows:** session lifecycle (launch + attach/`shouldCloseApp`), find (a11y id/class/
+tag/xpath), page source (full nova2 schema), element read/write (setValue/clear/getAttribute/getText/rect/
+enabled/displayed/selected), real input (click/keys/scroll/hover), **W3C Actions API** (pointer + key
+subset), **screenshots** (root + element, PNG base64), **clipboard** (plaintext), and the `windows:`
+execute surface (setValue/getValue verified; 24/35 commands implemented).
 
-**Done since:** (d) attach caps + (e) page-source schema parity + **the input layer** (windows: keys/click/
-hover/scroll/clickAndDrag via FlaUI.Core.Input, and W3C `click` as a real pointer click) — all E2E-verified
-except clickAndDrag (implemented, needs an observable scenario).
-
-**Next (decided):** W3C `performActions` (Actions API), screenshots (`getScreenshot`/element), clipboard,
-app-lifecycle (`launchApp`/`closeApp`/`setProcessForeground`), then rawView, `-windows uiautomation`,
-recording, the real frozen-app anti-hang test (Phase 4), and win-arm64.
+**Remaining gaps:** (a) `windows:` typeDelay, app-lifecycle (launchApp/closeApp/setProcessForeground),
+session scoping (cacheRequest/scopeSession/resetSessionRoot), recording ×2; (b) W3C getWindowRect, active,
+pull/pushFile; (c) rawView page source + `-windows uiautomation` raw-condition strategy; (d) input-related
+caps (typeDelay/smoothPointerMove/delays); (e) the real frozen-app anti-hang test (Phase 4) and win-arm64
+binary. PowerShell-only features are intentionally not ported (ADR-007).

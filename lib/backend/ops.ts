@@ -20,7 +20,13 @@ export type BackendOp =
   | { op: 'attributes'; id: string; names: string[] | 'all' }
   | { op: 'action'; id: string; action: string; args?: Record<string, unknown> }
   | { op: 'source'; startId: string; rawView?: boolean }
-  | { op: 'input'; kind: 'click' | 'hover' | 'keys' | 'scroll' | 'clickAndDrag'; args: Record<string, unknown> };
+  | {
+      op: 'input';
+      kind: 'click' | 'hover' | 'keys' | 'scroll' | 'clickAndDrag' | 'move' | 'down' | 'up';
+      args: Record<string, unknown>;
+    }
+  | { op: 'screenshot'; id?: string }
+  | { op: 'clipboard'; action: 'get' | 'set'; contentType?: string; b64?: string };
 
 export interface BasicProps {
   runtimeId: string;

@@ -5,6 +5,25 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — W3C Actions API + screenshots + clipboard (E2E PASS)
+
+**All verified on Windows in one run (Notepad E2E):**
+- **`performActions` ✅** — W3C Actions subset: sequential input sources; mouse pointer with
+  move/down/up (element-origin offsets computed from the element CENTER in TS, positions tracked for
+  `pointer` origin); key actions (specials → VK press/release via the `W3C_KEY_TO_VK` map, printables typed
+  on keyDown). E2E: pointer-click the Edit + key-type → Value `"xyz"`. `releaseActions` = no-op (no
+  persistent pressed state yet).
+- **Screenshots ✅** — new `screenshot` op (FlaUI `Capture.Element` → PNG → base64); W3C `getScreenshot`
+  (session root) + `getElementScreenshot`. E2E asserts `iVBOR…` PNG payloads.
+- **Clipboard ✅** — new `clipboard` op using **TextCopy** (no WinForms needed under the Web SDK);
+  `windows: setClipboard` / `windows: getClipboard` (plaintext base64, nova2-style). E2E roundtrip green.
+- Sidecar input gained raw `move`/`down`/`up` kinds (for Actions).
+
+`windows:` surface now **24/35 + clipboard**; remaining: typeDelay, app-lifecycle ×3, session-scoping ×3,
+recording ×2.
+
+---
+
 ## 2026-06-03 (cont.) — Phase 5 input layer via FlaUI.Core.Input (E2E PASS)
 
 **ADR-005 revised:** instead of porting nova2's koffi/Win32 input layer to TS, input is implemented in the

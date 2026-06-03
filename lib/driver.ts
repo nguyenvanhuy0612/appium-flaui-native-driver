@@ -64,7 +64,28 @@ const executeMethodMap = Object.fromEntries([
     `windows: ${name}`,
     { command: `${WINDOWS_METHOD_PREFIX}${name}`, params: spec.params },
   ]),
+  ['windows: setClipboard', { command: `${WINDOWS_METHOD_PREFIX}setClipboard`, params: { required: ['b64'], optional: ['contentType'] } }],
+  ['windows: getClipboard', { command: `${WINDOWS_METHOD_PREFIX}getClipboard`, params: { required: [], optional: ['contentType'] } }],
 ]) as unknown as ExecuteMethodMap<FlaUINativeDriver>;
+
+// W3C key codepoints (subset) → Windows virtual-key codes for performActions key sequences.
+// Printable characters are typed on keyDown (keyUp is a no-op) — documented subset.
+const W3C_KEY_TO_VK: Record<string, number> = {
+  '': 0x08, // Backspace
+  '': 0x09, // Tab
+  '': 0x0d, // Return
+  '': 0x0d, // Enter
+  '': 0x10, // Shift
+  '': 0x11, // Control
+  '': 0x12, // Alt
+  '': 0x1b, // Escape
+  '': 0x20, // Space
+  '': 0x25, // ArrowLeft
+  '': 0x26, // ArrowUp
+  '': 0x27, // ArrowRight
+  '': 0x28, // ArrowDown
+  '': 0x2e, // Delete
+};
 
 export class FlaUINativeDriver extends BaseDriver<Constraints> {
   static newMethodMap = {} as const;
@@ -228,6 +249,103 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     // SelectionItemPattern.IsSelected; null (pattern unsupported) reads as false.
     const res = await this.sidecar!.client.op<Record<string, unknown>>(attributesOp(elementId, ['IsSelected']));
     return res.IsSelected === true;
+  }
+
+  // ── Screenshots ──────────────────────────────────────────────────────────────────────────
+  async getScreenshot(): Promise<string> {
+    const res = await this.sidecar!.client.op<{ data: string }>({ op: 'screenshot' });
+    return res.data;
+  }
+
+  async getElementScreenshot(elementId: string): Promise<string> {
+    const res = await this.sidecar!.client.op<{ data: string }>({ op: 'screenshot', id: elementId });
+    return res.data;
+  }
+
+  // ── Clipboard (windows: setClipboard / getClipboard; plaintext base64, nova2-style) ───────
+  async windowsCmd_setClipboard(b64: string, contentType?: string): Promise<unknown> {
+    return this.sidecar!.client.op({ op: 'clipboard', action: 'set', b64, contentType });
+  }
+
+  async windowsCmd_getClipboard(contentType?: string): Promise<string> {
+    const res = await this.sidecar!.client.op<{ b64: string }>({ op: 'clipboard', action: 'get', contentType });
+    return res.b64;
+  }
+
+  // ── W3C Actions API (subset: sequential sources; mouse pointer + key) ─────────────────────
+  private pointerPos = { x: 0, y: 0 };
+
+  async performActions(actions: unknown[]): Promise<void> {
+    for (const seq of (actions ?? []) as Array<Record<string, any>>) {
+      if (seq.type === 'pause' || seq.type === 'none') {
+        for (const a of seq.actions ?? []) {
+          if (a.duration) await new Promise((r) => setTimeout(r, a.duration));
+        }
+      } else if (seq.type === 'pointer') {
+        await this.performPointerSeq(seq);
+      } else if (seq.type === 'key') {
+        await this.performKeySeq(seq);
+      } else {
+        throw new Error(`unsupported action source type: ${seq.type}`);
+      }
+    }
+  }
+
+  async releaseActions(): Promise<void> {
+    // No persistent pressed-key/button state is kept across calls yet (subset).
+  }
+
+  private async performPointerSeq(seq: Record<string, any>): Promise<void> {
+    for (const a of seq.actions ?? []) {
+      switch (a.type) {
+        case 'pause':
+          if (a.duration) await new Promise((r) => setTimeout(r, a.duration));
+          break;
+        case 'pointerMove': {
+          let x = a.x ?? 0;
+          let y = a.y ?? 0;
+          const origin = a.origin ?? 'viewport';
+          if (origin === 'pointer') {
+            x += this.pointerPos.x;
+            y += this.pointerPos.y;
+          } else if (typeof origin === 'object' && origin !== null) {
+            // element origin: W3C offsets are from the element CENTER.
+            const elId = (origin as Record<string, string>)[W3C_ELEMENT_KEY] ?? (origin as any).ELEMENT;
+            const r = await this.getElementRect(elId);
+            x += Math.round(r.x + r.width / 2);
+            y += Math.round(r.y + r.height / 2);
+          }
+          this.pointerPos = { x, y };
+          await this.sidecar!.client.op(inputOp('move', { x, y }));
+          break;
+        }
+        case 'pointerDown':
+          await this.sidecar!.client.op(inputOp('down', { button: a.button === 2 ? 'right' : 'left' }));
+          break;
+        case 'pointerUp':
+          await this.sidecar!.client.op(inputOp('up', { button: a.button === 2 ? 'right' : 'left' }));
+          break;
+        default:
+          throw new Error(`unsupported pointer action: ${a.type}`);
+      }
+    }
+  }
+
+  private async performKeySeq(seq: Record<string, any>): Promise<void> {
+    for (const a of seq.actions ?? []) {
+      if (a.type === 'pause') {
+        if (a.duration) await new Promise((r) => setTimeout(r, a.duration));
+        continue;
+      }
+      const ch = a.value as string;
+      const vk = W3C_KEY_TO_VK[ch];
+      if (vk !== undefined) {
+        await this.sidecar!.client.op(inputOp('keys', { actions: [{ virtualKeyCode: vk, down: a.type === 'keyDown' }] }));
+      } else if (a.type === 'keyDown') {
+        // Printable characters are typed on keyDown; keyUp is a no-op (documented subset).
+        await this.sidecar!.client.op(inputOp('keys', { actions: [{ text: ch }] }));
+      }
+    }
   }
 
   // base-driver provides no default `execute`, so the W3C execute endpoint 405s without this. Route it

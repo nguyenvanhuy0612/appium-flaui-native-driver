@@ -81,6 +81,8 @@ app.MapPost("/op", async (HttpRequest req) =>
         "action" => interp!.Action(op),
         "source" => interp!.Source(op),
         "input" => interp!.Input(op),
+        "screenshot" => interp!.Screenshot(op),
+        "clipboard" => interp!.Clipboard(op),
         var o => throw new NotSupportedException($"op not implemented: {o}"),
     });
 });
