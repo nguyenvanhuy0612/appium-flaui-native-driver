@@ -48,7 +48,20 @@ export class RpcClient {
         body: body ? JSON.stringify(body) : undefined,
         signal: ctrl.signal,
       });
-      return await r.json();
+      // Guard the body parse (F18): a non-JSON or non-2xx response (e.g. a Kestrel 500 HTML page if an
+      // op handler ever threw before writing an envelope) would make r.json() reject with an opaque
+      // SyntaxError. Synthesize a clean RpcError carrying the HTTP status + body text instead.
+      const text = await r.text();
+      let parsed: unknown;
+      try {
+        parsed = text ? JSON.parse(text) : undefined;
+      } catch {
+        throw new RpcError('unknown error', `sidecar returned non-JSON (HTTP ${r.status}): ${text.slice(0, 300)}`);
+      }
+      if (!r.ok && (parsed == null || typeof parsed !== 'object' || !('ok' in (parsed as object)))) {
+        throw new RpcError('unknown error', `sidecar HTTP ${r.status}: ${text.slice(0, 300)}`);
+      }
+      return parsed;
     } finally {
       clearTimeout(t);
     }

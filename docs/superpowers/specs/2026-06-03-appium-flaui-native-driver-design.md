@@ -148,7 +148,7 @@ The XPath engine already models conditions as structured objects (`PropertyCondi
 | UIA work scheduler | Single dedicated STA worker thread with a work queue; each op runs under a `CancellationToken` + wall-clock watchdog. Thread-poisoning isolation (§6). |
 | Op interpreter | Maps each JSON op to FlaUI calls. |
 | Element registry | `Dictionary<runtimeId, AutomationElement>` with FIFO eviction (port nova2's 10k cap + `Marshal.ReleaseComObject`). Stale-id → re-resolve by runtime id, else W3C `stale element`. |
-| Page-source builder | One `CacheRequest` pass, iterative BFS, emits XML identical to nova2's schema. |
+| Page-source builder | Iterative DFS, **live** property reads today (single-`CacheRequest` pass is a TODO — see §5.2), emits XML identical to nova2's schema. |
 | Backend factory | Instantiates `UIA3Automation` (default) or `UIA2Automation` (opt-in); sets `ConnectionTimeout`/`TransactionTimeout`. |
 
 ---
@@ -169,7 +169,7 @@ The XPath engine already models conditions as structured objects (`PropertyCondi
 Representative ops carried by `POST /op`:
 
 - `find` — `{ startId, multiple, scope, condition }` → element id(s) + cached basic props
-- `attributes` — `{ id, names[] | "all" }` → bulk property fetch via `CacheRequest`
+- `attributes` — `{ id, names[] | "all" }` → bulk property fetch (live reads today; `CacheRequest` batching is a TODO)
 - `action` — `{ id, action, args }` → invoke/setValue/toggle/expand/collapse/select/focus/window ops
 - `source` — `{ startId, rawView? }` → page-source XML string
 - `input` — `{ kind: click|hover|keys|scroll|clickAndDrag, ... }` → Win32/UIA input
@@ -189,16 +189,21 @@ so element semantics and any persisted references behave the same. Registry maps
 `stale element reference`.
 
 ### 5.2 Page source
-Built in C# in a single pass:
-1. Construct a `CacheRequest` pre-loading all schema properties + pattern availability.
-2. Iterative BFS over `Children` (no recursion → no stack issues on deep trees).
+Built in C# by **live traversal** (as implemented today — the single-`CacheRequest` pass below is a
+planned optimization, not yet shipped):
+1. Iterative stack-based DFS over `Children` (no recursion → no stack issues on deep trees).
+2. Each node's properties are read **live** (one COM round-trip per property), so cost is O(props×nodes).
+   The whole `source` op runs on the UIA worker under the per-op watchdog, so it is bounded but not yet
+   batched.
 3. Emit XML with the **exact tag/attribute schema nova2 uses** (tag = `ControlType.ProgrammaticName`
    leaf; attributes: Name, AutomationId, ClassName, ControlType, RuntimeId, LocalizedControlType,
    IsEnabled, IsOffscreen, ProcessId, FrameworkId, HelpText, x/y/width/height relative to root,
    plus pattern-specific CanMaximize/IsModal/WindowVisualState/etc.).
 
-This is both **faster** (one cached pass vs N round-trips) and **more stable** (fewer COM calls, each
-bounded by the watchdog) than nova2's PowerShell BFS. `rawView` honored via `TreeFilter`.
+**TODO (perf):** construct a `CacheRequest` pre-loading all schema properties + pattern availability and
+re-fetch the start element under that cache, collapsing the per-property round-trips into one pass — both
+faster and more stable than the current live read. The `rawView` flag is currently **accepted but ignored**
+(control view only); honoring it via a raw-view `TreeWalker`/`TreeFilter` is also a TODO.
 
 ### 5.3 Find / XPath
 - **Direct strategies** (`accessibility id`, `name`, `class name`, `tag name`, RuntimeId,

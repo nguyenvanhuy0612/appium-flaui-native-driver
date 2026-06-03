@@ -21,28 +21,55 @@ AutomationBase? automation = null;
 OpInterpreter? interp = null;
 Application? launchedApp = null;   // set only when WE launched the app (not when attaching)
 var shouldCloseApp = true;
+var forceQuit = false;            // ms:forcequit — kill instead of graceful close (F10)
 string? appPath = null;            // remembered for `windows: launchApp`
+var opTimeout = TimeSpan.FromSeconds(30); // per-op watchdog (flaui:operationTimeout, F5)
+
+// Read an optional millisecond cap from the session caps.
+static TimeSpan? Ms(JsonElement caps, string name) =>
+    caps.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number
+        ? TimeSpan.FromMilliseconds(v.GetDouble())
+        : null;
 
 app.MapGet("/status", () => Results.Json(new { ok = true, ready = true }));
 
 app.MapPost("/session", async (HttpRequest req) =>
 {
+  // Body parse + setup are guarded so a malformed body / bad cap yields the {ok:false,error} envelope
+  // rather than a raw Kestrel 500 (F18).
+  JsonElement caps;
+  try
+  {
     using var doc = await JsonDocument.ParseAsync(req.Body);
-    var caps = doc.RootElement.Clone();
+    caps = doc.RootElement.Clone();
     var backend = caps.TryGetProperty("backend", out var b) ? b.GetString() : "uia3";
     automation = backend == "uia2" ? new UIA2Automation() : new UIA3Automation();
-    automation.ConnectionTimeout = TimeSpan.FromSeconds(60);   // anti-hang layer 1
-    automation.TransactionTimeout = TimeSpan.FromSeconds(60);
+    // anti-hang layer 1 — UIA-level timeouts (flaui:connectionTimeout / flaui:transactionTimeout, F5).
+    automation.ConnectionTimeout = Ms(caps, "connectionTimeout") ?? TimeSpan.FromSeconds(60);
+    automation.TransactionTimeout = Ms(caps, "transactionTimeout") ?? TimeSpan.FromSeconds(60);
+    // per-op watchdog (flaui:operationTimeout, F5).
+    opTimeout = Ms(caps, "operationTimeout") ?? TimeSpan.FromSeconds(30);
+    // element registry cap (flaui:elementTableMax, F5) — rebuild with the requested size.
+    if (caps.TryGetProperty("elementTableMax", out var etm) && etm.ValueKind == JsonValueKind.Number)
+        registry = new ElementRegistry(etm.GetInt32());
     interp = new OpInterpreter(automation, registry);
     shouldCloseApp = !caps.TryGetProperty("shouldCloseApp", out var sc) || sc.ValueKind != JsonValueKind.False;
+    forceQuit = caps.TryGetProperty("forcequit", out var fq) && fq.ValueKind == JsonValueKind.True;
+  }
+  catch (JsonException ex) { return Err("invalid argument", $"malformed /session body: {ex.Message}"); }
+  catch (Exception ex) { return Err("unknown error", ex.Message); }
 
     return await RunOp(() =>
     {
         FlaUI.Core.AutomationElements.AutomationElement root;
         if (caps.TryGetProperty("appTopLevelWindow", out var h) && h.GetString() is { Length: > 0 } hex)
         {
-            // Attach to an existing top-level window by HWND (hex, with or without 0x).
-            var hwnd = Convert.ToInt64(hex.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? hex[2..] : hex, 16);
+            // Attach to an existing top-level window by HWND (hex, with or without 0x). Invalid hex is a
+            // user error → ArgumentException → W3C "invalid argument" (F17), not an opaque unknown error.
+            var raw = hex.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? hex[2..] : hex;
+            if (!long.TryParse(raw, System.Globalization.NumberStyles.HexNumber,
+                    System.Globalization.CultureInfo.InvariantCulture, out var hwnd))
+                throw new InvalidArgumentException($"appTopLevelWindow is not a valid hex HWND: '{hex}'");
             root = automation!.FromHandle(new IntPtr(hwnd));
         }
         else if (caps.TryGetProperty("app", out var appEl) &&
@@ -71,17 +98,36 @@ app.MapDelete("/session", async () => await RunOp(() =>
 {
     if (shouldCloseApp)
     {
-        if (launchedApp is not null) { try { launchedApp.Close(); } catch { /* best effort */ } }
+        if (launchedApp is not null) CloseOrKillLaunchedApp();
         else interp?.CloseRootWindow();   // attached session: close via WindowPattern
     }
     return new { done = true };
 }));
 
+// Close the app we launched. ms:forcequit (or a failed graceful close) escalates to Kill (F10).
+void CloseOrKillLaunchedApp()
+{
+    if (launchedApp is null) return;
+    if (forceQuit) { try { launchedApp.Kill(); } catch { /* best effort */ } return; }
+    try { launchedApp.Close(); }
+    catch { try { launchedApp.Kill(); } catch { /* best effort */ } }
+}
+
 app.MapPost("/op", async (HttpRequest req) =>
 {
-    using var doc = await JsonDocument.ParseAsync(req.Body);
-    var op = doc.RootElement.Clone();
-    var kind = op.GetProperty("op").GetString();
+    // Guard the body parse + op-name extraction (F18): malformed JSON or a missing `op` field must map to
+    // a clean W3C error envelope, never a raw 500.
+    JsonElement op;
+    string? kind;
+    try
+    {
+        using var doc = await JsonDocument.ParseAsync(req.Body);
+        op = doc.RootElement.Clone();
+        if (op.ValueKind != JsonValueKind.Object || !op.TryGetProperty("op", out var kindEl))
+            return Err("invalid argument", "request body is missing the 'op' field");
+        kind = kindEl.GetString();
+    }
+    catch (JsonException ex) { return Err("invalid argument", $"malformed /op body: {ex.Message}"); }
     // PowerShell runs out-of-scheduler (no UIA involved; may legitimately run longer than the watchdog).
     if (kind == "powershell") return await RunPowerShell(op);
     return await RunOp(() => kind switch
@@ -114,7 +160,7 @@ object HandleApp(JsonElement op)
             return interp!.OpenSession(root); // re-root the session on the relaunched app
         }
         case "close":
-            if (launchedApp is not null) { try { launchedApp.Close(); } catch { /* best effort */ } }
+            if (launchedApp is not null) CloseOrKillLaunchedApp();
             else interp?.CloseRootWindow();
             return new { done = true };
         case "activate":
@@ -131,8 +177,17 @@ object HandleApp(JsonElement op)
     }
 }
 
+// PowerShell child process, BOUNDED (F4): stdin write + stdout/stderr reads run concurrently to avoid the
+// redirect-pipe deadlock (a child filling its stdout pipe blocks until the parent drains it); the whole
+// thing is under a CancellationTokenSource so a runaway script is killed (entire process tree) and mapped
+// to a W3C "timeout" error. Timeout = op.timeoutMs (flaui powerShellCommandTimeout) or 60s default.
 async Task<IResult> RunPowerShell(JsonElement op)
 {
+    var timeout = op.TryGetProperty("timeoutMs", out var tm) && tm.ValueKind == JsonValueKind.Number
+        ? TimeSpan.FromMilliseconds(tm.GetDouble())
+        : TimeSpan.FromSeconds(60);
+    using var cts = new CancellationTokenSource(timeout);
+    System.Diagnostics.Process? p = null;
     try
     {
         var script = op.GetProperty("script").GetString()!;
@@ -143,15 +198,28 @@ async Task<IResult> RunPowerShell(JsonElement op)
             RedirectStandardError = true,
             UseShellExecute = false,
         };
-        using var p = System.Diagnostics.Process.Start(psi)!;
-        await p.StandardInput.WriteAsync(script);
+        p = System.Diagnostics.Process.Start(psi)!;
+        // Drain stdout/stderr CONCURRENTLY while writing stdin (deadlock-free).
+        Task<string> outTask = p.StandardOutput.ReadToEndAsync(cts.Token);
+        Task<string> errTask = p.StandardError.ReadToEndAsync(cts.Token);
+        await p.StandardInput.WriteAsync(script.AsMemory(), cts.Token);
         p.StandardInput.Close();
-        var stdout = await p.StandardOutput.ReadToEndAsync();
-        var stderr = await p.StandardError.ReadToEndAsync();
-        await p.WaitForExitAsync();
+        await p.WaitForExitAsync(cts.Token);
+        var stdout = await outTask;
+        var stderr = await errTask;
         return Results.Json(new { ok = true, value = new { stdout, stderr, exitCode = p.ExitCode } });
     }
-    catch (Exception ex) { return Err("unknown error", ex.Message); }
+    catch (OperationCanceledException)
+    {
+        try { p?.Kill(entireProcessTree: true); } catch { /* best effort */ }
+        return Err("timeout", $"PowerShell command exceeded {timeout.TotalSeconds:0}s and was terminated.");
+    }
+    catch (Exception ex)
+    {
+        try { p?.Kill(entireProcessTree: true); } catch { /* best effort */ }
+        return Err("unknown error", ex.Message);
+    }
+    finally { p?.Dispose(); }
 }
 
 // Every UIA-touching op runs on the scheduler's dedicated worker, bounded by the watchdog (layer 2),
@@ -160,12 +228,14 @@ async Task<IResult> RunOp(Func<object?> work)
 {
     try
     {
-        var value = await scheduler.RunAsync(_ => work(), TimeSpan.FromSeconds(30));
+        var value = await scheduler.RunAsync(_ => work(), opTimeout);
         return Results.Json(new { ok = true, value });
     }
     catch (TimeoutException ex) { return Err("timeout", ex.Message); }
+    catch (SchedulerFatalException ex) { return Err("unknown error", ex.Message); } // → TS layer-5 recycle
     catch (StaleElementException ex) { return Err("stale element reference", ex.Message); }
     catch (ElementNotFoundException ex) { return Err("no such element", ex.Message); }
+    catch (InvalidArgumentException ex) { return Err("invalid argument", ex.Message); }
     catch (ArgumentException ex) { return Err("invalid selector", ex.Message); }
     catch (Exception ex) { return Err("unknown error", ex.Message); }
 }

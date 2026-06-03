@@ -181,10 +181,29 @@ public sealed class OpInterpreter
             {
                 var t = root.Patterns.Transform.PatternOrDefault;
                 var a = op.GetProperty("args");
-                if (a.TryGetProperty("x", out var x) && a.TryGetProperty("y", out var y) && t?.CanMove.ValueOrDefault == true)
-                    t.Move(x.GetDouble(), y.GetDouble());
-                if (a.TryGetProperty("width", out var w) && a.TryGetProperty("height", out var h) && t?.CanResize.ValueOrDefault == true)
-                    t.Resize(w.GetDouble(), h.GetDouble());
+                int? rx = a.TryGetProperty("x", out var x) ? x.GetInt32() : null;
+                int? ry = a.TryGetProperty("y", out var y) ? y.GetInt32() : null;
+                int? rw = a.TryGetProperty("width", out var w) ? w.GetInt32() : null;
+                int? rh = a.TryGetProperty("height", out var h) ? h.GetInt32() : null;
+
+                var moved = false;
+                if (rx is not null && ry is not null && t?.CanMove.ValueOrDefault == true)
+                { t.Move(rx.Value, ry.Value); moved = true; }
+                var resized = false;
+                if (rw is not null && rh is not null && t?.CanResize.ValueOrDefault == true)
+                { t.Resize(rw.Value, rh.Value); resized = true; }
+
+                // F16: if TransformPattern couldn't satisfy a requested move/resize, fall back to Win32
+                // MoveWindow on the HWND rather than silently no-op'ing.
+                var needMove = (rx is not null || ry is not null) && !moved;
+                var needResize = (rw is not null || rh is not null) && !resized;
+                if (needMove || needResize)
+                {
+                    var hwnd = root.Properties.NativeWindowHandle.ValueOrDefault;
+                    if (!Win32.MoveResize(hwnd, rx, ry, rw, rh))
+                        throw new InvalidArgumentException(
+                            "window cannot be moved/resized (no TransformPattern and Win32 MoveWindow failed)");
+                }
                 return RectOf(root);
             }
             case "maximize":
@@ -241,6 +260,10 @@ public sealed class OpInterpreter
             }
             case "keys":
             {
+                // F11: W3C Actions pauses are applied on the TS side (between ops), so they do NOT occupy
+                // this UIA worker. The in-batch `pause` below is a legacy convenience for a single keys op
+                // carrying its own micro-delays; by design it serializes the worker for that short span.
+                // Prefer splitting long pauses across separate ops (the driver's performActions does this).
                 foreach (var a in args.GetProperty("actions").EnumerateArray())
                 {
                     if (a.TryGetProperty("pause", out var pz)) { Thread.Sleep(pz.GetInt32()); continue; }
@@ -553,6 +576,10 @@ public sealed class OpInterpreter
 }
 
 public sealed class StaleElementException(string id) : Exception($"stale element: {id}");
+
+/// <summary>Raised for a malformed/invalid argument (e.g. a non-hex appTopLevelWindow). Mapped to the
+/// W3C "invalid argument" error in Program.cs (distinct from ArgumentException → "invalid selector").</summary>
+public sealed class InvalidArgumentException(string message) : Exception(message);
 
 /// <summary>Raised when a single-element find yields no match (FlaUI's FindFirst returned null).
 /// Mapped to the W3C "no such element" error in Program.cs.</summary>

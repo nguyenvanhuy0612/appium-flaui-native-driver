@@ -31,7 +31,7 @@ export type BackendOp =
   | { op: 'walk'; id: string; direction: 'parent' | 'ancestors' | 'following-siblings' | 'preceding-siblings' }
   | { op: 'window'; action: 'title' | 'handle' | 'rect' | 'setRect' | 'maximize' | 'minimize' | 'foreground'; args?: Record<string, unknown> }
   | { op: 'app'; action: 'launch' | 'close' | 'activate'; process?: string }
-  | { op: 'powershell'; script: string };
+  | { op: 'powershell'; script: string; timeoutMs?: number };
 
 export interface BasicProps {
   runtimeId: string;
@@ -48,6 +48,7 @@ export type W3CErrorType =
   | 'stale element reference'
   | 'no such element'
   | 'invalid selector'
+  | 'invalid argument'
   | 'unknown error';
 
 export type BackendResult<T = unknown> =

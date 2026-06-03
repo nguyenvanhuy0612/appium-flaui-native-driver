@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import http from 'node:http';
 import { type AddressInfo } from 'node:net';
-import { RpcClient } from '../../lib/backend/rpc-client';
+import { RpcClient, RpcError } from '../../lib/backend/rpc-client';
 
 describe('RpcClient', () => {
   let server: http.Server;
@@ -66,5 +66,47 @@ describe('RpcClient', () => {
     expect((caught as Error).message).to.equal('nope');
     expect((caught as { type: string }).type).to.equal('no such element');
     await new Promise<void>((r) => errServer.close(() => r()));
+  });
+
+  it('F18: non-JSON 500 body -> RpcError("unknown error") not a SyntaxError', async () => {
+    // Simulate a raw Kestrel 500 (HTML/plain text, not a {ok:false} envelope).
+    const htmlServer = http.createServer((_req, res) => {
+      res.statusCode = 500;
+      res.setHeader('content-type', 'text/html');
+      res.end('<html><body>Internal Server Error</body></html>');
+    });
+    await new Promise<void>((r) => htmlServer.listen(0, '127.0.0.1', () => r()));
+    const htmlBase = `http://127.0.0.1:${(htmlServer.address() as AddressInfo).port}`;
+    const client = new RpcClient(htmlBase);
+    let caught: unknown;
+    try {
+      await client.op({ op: 'source', startId: 'root' });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught, 'should throw').to.be.instanceOf(RpcError);
+    expect((caught as RpcError).type).to.equal('unknown error');
+    expect((caught as Error).message.toLowerCase()).to.match(/non-json|500/);
+    await new Promise<void>((r) => htmlServer.close(() => r()));
+  });
+
+  it('F18: 2xx-but-non-JSON body -> RpcError("unknown error")', async () => {
+    const garbageServer = http.createServer((_req, res) => {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end('not json at all');
+    });
+    await new Promise<void>((r) => garbageServer.listen(0, '127.0.0.1', () => r()));
+    const gBase = `http://127.0.0.1:${(garbageServer.address() as AddressInfo).port}`;
+    const client = new RpcClient(gBase);
+    let caught: unknown;
+    try {
+      await client.op({ op: 'source', startId: 'root' });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught, 'should throw').to.be.instanceOf(RpcError);
+    expect((caught as RpcError).type).to.equal('unknown error');
+    await new Promise<void>((r) => garbageServer.close(() => r()));
   });
 });

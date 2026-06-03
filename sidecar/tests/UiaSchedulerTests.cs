@@ -43,4 +43,50 @@ public class UiaSchedulerTests
         Assert.Equal("ok", r);
         Assert.Equal(0, s.PoisonedThreadCount); // cooperative work => no thread abandoned
     }
+
+    [Fact]
+    public async Task ConcurrentRunAsync_AreSerialized_OneAtATime()
+    {
+        // F3: even when many RunAsync calls are issued concurrently, only one op may execute at a time.
+        using var s = new UiaScheduler();
+        var inFlight = 0;
+        var maxObserved = 0;
+        var sync = new object();
+
+        async Task Op()
+        {
+            await s.RunAsync(_ =>
+            {
+                lock (sync) { inFlight++; maxObserved = Math.Max(maxObserved, inFlight); }
+                Thread.Sleep(40); // hold the worker so an overlap would be observable
+                lock (sync) { inFlight--; }
+                return null;
+            }, TimeSpan.FromSeconds(5));
+        }
+
+        var tasks = Enumerable.Range(0, 12).Select(_ => Op()).ToArray();
+        await Task.WhenAll(tasks);
+
+        Assert.Equal(1, maxObserved); // never two ops running simultaneously
+    }
+
+    [Fact]
+    public async Task ManyPoisonedThreads_SurfacesFatalSignal()
+    {
+        // F3: unbounded poisoned-thread growth is fatal. After enough frozen ops, RunAsync surfaces a
+        // SchedulerFatalException so the layer-5 circuit breaker can recycle the sidecar.
+        using var s = new UiaScheduler();
+        var sawFatal = false;
+        for (var i = 0; i < 10 && !sawFatal; i++)
+        {
+            try
+            {
+                await s.RunAsync(_ => { Thread.Sleep(Timeout.Infinite); return null; },
+                    TimeSpan.FromMilliseconds(150));
+            }
+            catch (SchedulerFatalException) { sawFatal = true; }
+            catch (TimeoutException) { /* keep poisoning until the budget is exceeded */ }
+        }
+        Assert.True(sawFatal, "expected a SchedulerFatalException once the poison budget was exceeded");
+    }
 }

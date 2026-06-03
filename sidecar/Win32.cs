@@ -13,6 +13,11 @@ internal static class Win32
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint a, uint b, bool attach);
+    [DllImport("user32.dll")] private static extern bool MoveWindow(IntPtr h, int x, int y, int w, int ht, bool repaint);
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr h, out RECT rect);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT { public int Left, Top, Right, Bottom; }
 
     private const int SW_RESTORE = 9;
 
@@ -33,5 +38,18 @@ internal static class Win32
         {
             if (attached) AttachThreadInput(fgThread, thisThread, false);
         }
+    }
+
+    /// <summary>Win32 fallback move/resize for windows without a usable UIA TransformPattern (F16).
+    /// Any of x/y/width/height may be null → keep the window's current value for that field.</summary>
+    public static bool MoveResize(IntPtr hwnd, int? x, int? y, int? width, int? height)
+    {
+        if (hwnd == IntPtr.Zero) return false;
+        if (!GetWindowRect(hwnd, out var r)) return false;
+        var nx = x ?? r.Left;
+        var ny = y ?? r.Top;
+        var nw = width ?? (r.Right - r.Left);
+        var nh = height ?? (r.Bottom - r.Top);
+        return MoveWindow(hwnd, nx, ny, nw, nh, true);
     }
 }

@@ -98,6 +98,9 @@ reintroduces the failure mode and an insecure feature to maintain. Users who nee
 **Consequences:** Drop related capabilities (`powerShellCommandTimeout`, `isolatedScriptExecution`,
 `prerun`, `postrun`, `treatStderrAsError`). If demand appears later, add it back as a scoped insecure feature.
 
+> **REVERSED by ADR-014 (2026-06-03):** PowerShell is reintroduced as a scoped, gated insecure feature
+> (`flauinative:power_shell`). It is an opt-in convenience, **not** the execution backbone. See ADR-014.
+
 ---
 
 ## ADR-008 — Insecure feature flags to scope (Appium 3)
@@ -193,6 +196,39 @@ published sub-package now would be premature. No `package.json` change this sess
 
 **Consequences:** Package stays ~375 MB until first public publish. `prebuilt/` remains in `files`.
 Documented honestly in the README size note.
+
+---
+
+## ADR-014 — PowerShell as a scoped, gated insecure feature (reverses ADR-007)
+
+**Decision (2026-06-03):** Support PowerShell execution as an **opt-in, scoped insecure feature**
+`flauinative:power_shell`, exposed via the `execute('powershell', [{script|command}])` script **and** the
+`appium:prerun` capability. This explicitly **reverses ADR-007** ("No PowerShell-execution command in v1").
+PowerShell is **not** the execution backbone (the structured-op C# sidecar remains the backbone, ADR-002/003);
+it is a convenience escape hatch for the rare cases where a client needs to run a host command.
+
+**Why this is acceptable now (it wasn't the design's premise):**
+- **Opt-in + gated.** Off by default; only available when the operator scopes
+  `--allow-insecure=flauinative:power_shell` (config file). The driver calls `this.assertFeatureEnabled('power_shell')`
+  **before** running anything — both the `powershell` script path and `appium:prerun` (F23) — so it fails
+  **loud** (a clean W3C feature error) rather than silently. base-driver 10.6 provides `assertFeatureEnabled`,
+  so the gate is a direct call, never an optional-chained no-op (F22).
+- **Runs OUTSIDE the UIA watchdog.** PowerShell executes on its own child process, not on the STA UIA
+  worker, so a slow script never occupies or freezes the UIA scheduler. The anti-hang design is unaffected.
+- **Bounded (F4).** The child is wrapped in a `CancellationTokenSource` (timeout = `powerShellCommandTimeout`
+  ms, default 60s); on expiry it is `Kill(entireProcessTree:true)`ed and mapped to a W3C `timeout` error.
+  stdin write + stdout/stderr reads run concurrently to avoid the redirect-pipe deadlock.
+
+**`prerun` note:** `appium:prerun` runs arbitrary PowerShell at session create, so it requires the **same**
+`power_shell` feature; a `prerun` request without the feature **fails session creation** with the feature error.
+
+**Trust boundary:** with this feature enabled, any client reaching the endpoint can run arbitrary code with
+the Appium server's privileges. Documented as an insecure feature in FUNCTIONS.md/README (F24). Same applies
+to `pull_file`/`push_file` (whole-filesystem read/write, no sandbox).
+
+**Consequences:** `powerShellCommandTimeout` and `prerun`/`postrun` capabilities are re-honored
+(`powerShellCommandTimeout` now actually bounds the child; `postrun` remains accepted/advisory). The feature
+set scoped under `flauinative:` (ADR-008) is extended with `power_shell`.
 
 ---
 

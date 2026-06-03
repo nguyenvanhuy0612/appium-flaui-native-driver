@@ -41,9 +41,13 @@ selected automatically (`process.arch`) but are cross-built on x64 — declared,
 | `appium:appArguments` | 🟡 | command-line arguments for the launched app |
 | `appium:appWorkingDir` | 🟡 | working directory for the launched app |
 | `appium:shouldCloseApp` | ✅ | default `true`; on session end close the launched app (or the attached window) |
-| `flaui:backend` | ✅ uia3 / 🟡 uia2 | UIA backend selection |
+| `flaui:backend` | ✅ uia3 / 🟡 uia2 (experimental) | UIA backend selection. **uia2 is experimental:** the anti-hang layer-1 timeouts (`ConnectionTimeout`/`TransactionTimeout`) are a UIA3-only property surface; under uia2 they do not apply, so uia2 falls back on layers 2–5 only. |
+| `flaui:connectionTimeout` / `flaui:transactionTimeout` | 🟡 | UIA timeouts (ms); UIA3 only. Defaults 60000. |
+| `flaui:operationTimeout` | 🟡 | per-op watchdog (ms); default 30000. |
+| `flaui:elementTableMax` | 🟡 | element registry cap; default 10000. |
+| `flaui:autoRecycle` | 🟡 | layer-5 sidecar recycle on transport failure; default `true`. |
 | `ms:waitForAppLaunch` | ✅ | settle delay (seconds) after launch |
-| `appium:prerun` | ✅ | `{script}` PowerShell at session start (requires the `power_shell` feature) |
+| `appium:prerun` | 🟡 | `{script}`/`{command}` PowerShell at session start. **Gated** — requires the `flauinative:power_shell` insecure feature, or session creation fails with a feature error (ADR-014). |
 | `appium:includeContextElementInSearch` | ✅ | default `true`: searches include the context element itself |
 | Misc compat caps | ✅ accepted | `powerShellCommandTimeout`, `treatStderrAsError`, `postrun`, `typeDelay`, `smoothPointerMove`, `delayBeforeClick/AfterClick`, `releaseModifierKeys`, `convertAbsoluteXPathToRelativeFromElement`, `isolatedScriptExecution`, `ms:forcequit` — accepted (no rejection), currently advisory no-ops |
 
@@ -86,7 +90,7 @@ evaluate in TS over bulk-fetched attributes. Positional semantics (`//X[1]` vs `
 | `GET /element/:id/name` | getName → tag (ControlType) | ✅ |
 | `GET /element/:id/rect` | getElementRect | ✅ |
 | `GET /element/:id/enabled` · `/displayed` · `/selected` | element state | ✅ |
-| `GET /session/:id/source` | getPageSource — nested XML, full UIA attribute schema, relative coords, pattern attrs | ✅ |
+| `GET /session/:id/source` | getPageSource — nested XML, full UIA attribute schema, relative coords, pattern attrs. **Live traversal** (one COM read per property), bounded by the per-op watchdog; a single-`CacheRequest` pass is a planned optimization, not yet shipped. `rawView` is accepted but ignored (control view only). | ✅ |
 | `GET /session/:id/screenshot` · `/element/:id/screenshot` | PNG base64 (FlaUI Capture) | ✅ |
 | `GET /session/:id/title` | getTitle (root window) | ✅ |
 | `GET /window` · `/window/handles` | getWindowHandle(s) | ✅ |
@@ -131,7 +135,7 @@ Element args accept `{elementId}` or the W3C element object.
 
 | Script | Status | Security |
 |---|---|---|
-| `powershell` `{script}` → stdout | ✅ | requires `flauinative:power_shell` |
+| `powershell` `{script}` → stdout | ✅ | requires `flauinative:power_shell`. Bounded: child process killed (whole tree) after `powerShellCommandTimeout` ms (default 60000) → W3C `timeout`. |
 | `pullFile` `{path}` / `pushFile` `{path,data}` / `pullFolder` `{path}` | ✅ | `flauinative:pull_file` / `push_file` |
 
 **Enabling insecure features (Appium 3):** the `--allow-insecure` CLI flag does not parse multiple scoped
@@ -141,12 +145,32 @@ features — use a **config file**:
 ```
 `appium --config <file>`.
 
+**⚠ Trust boundary (no sandbox).** These are *insecure features* by design:
+- **`power_shell`** (incl. `appium:prerun`) runs **arbitrary** PowerShell on the host with the Appium
+  server's privileges. Anyone who can reach the Appium endpoint with this feature enabled can run any code.
+- **`pull_file` / `push_file` / `pull_folder`** expose the **entire filesystem**: ANY absolute path is
+  readable (pull) or writable (push). There is **no path allow-list and no sandbox**.
+
+Enable these only when the Appium server and every connecting client are fully trusted (e.g. a local CI
+box you own). They are OFF unless explicitly scoped via the config above.
+
 ## 7. Stability architecture
 
-Five-layer anti-hang (UIA3 Connection/TransactionTimeout → per-op watchdog, fail-fast & session survives →
-STA worker poisoning & replacement → serial queue/backpressure → sidecar recycle), self-contained sidecar
-exe (no .NET/Dev-Mode for users), stdout port handshake + stdin-EOF heartbeat (no orphans).
-Verified by unit tests; the frozen-app E2E + 30-min stress remain planned.
+Five-layer anti-hang:
+1. **UIA3 Connection/TransactionTimeout** (UIA3 only; see uia2 note in §1).
+2. **Per-op watchdog** — wall-clock timeout on the UIA worker; fail-fast, the Appium session survives.
+3. **STA worker poisoning & replacement** — a frozen COM call abandons its thread; a fresh STA worker
+   takes over. Past a small budget of poisoned threads the scheduler raises a fatal signal → layer 5.
+4. **Serial queue / backpressure** — the scheduler serializes in-flight ops (`SemaphoreSlim(1,1)`), so
+   only one op runs at a time as designed.
+5. **Sidecar recycle (circuit breaker)** — on a **transport failure** (sidecar dead / connection refused),
+   the TS layer recycles the sidecar process (deduped via a single restart promise), replays the stored
+   `/session` body to **re-attach** (relaunch the app, or re-attach by `appTopLevelWindow`), then retries
+   the failed op **once**; a second failure surfaces a clear `unknown error`. Toggle with `flaui:autoRecycle`.
+
+Plus: self-contained sidecar exe (no .NET/Dev-Mode for users), stdout port handshake + stdin-EOF heartbeat
+(no orphans). Layers 1–4 + the scheduler are unit-tested; layer-5 recycle is unit-tested at the transport
+seam. The dedicated **frozen-app E2E + 30-min stress remain planned** (not yet run).
 
 ## 8. Out of scope / planned
 
@@ -155,7 +179,7 @@ Verified by unit tests; the frozen-app E2E + 30-min stress remain planned.
 | Screen recording | ⏸ dropped (ADR-012, user decision) |
 | PowerShell-backend internals of other drivers | ⏸ N/A by design |
 | `-windows uiautomation` raw condition | ⬜ |
-| rawView page source · active element · getDeviceTime | ⬜ |
+| rawView page source (flag accepted but ignored — control view only) · active element · getDeviceTime | ⬜ |
 | win-arm64 prebuilt | 🟡 cross-built clean (~195 MB); not yet run-verified on ARM hardware |
 | Windows Server (Desktop Experience) support | 🟡 declared (no OS-version gate); Server Core ⏸ unsupported |
 | typeDelay/smoothPointerMove/delay* effects | ⬜ |

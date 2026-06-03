@@ -45,6 +45,12 @@ const constraints = {
   appWorkingDir: { isString: true },
   shouldCloseApp: { isBoolean: true }, // default true
   'flaui:backend': { isString: true, inclusion: ['uia3', 'uia2'] },
+  // Sidecar / stability tuning (spec §7). All optional; sane defaults applied in the sidecar.
+  'flaui:connectionTimeout': { isNumber: true }, // UIA ConnectionTimeout (ms)
+  'flaui:transactionTimeout': { isNumber: true }, // UIA TransactionTimeout (ms)
+  'flaui:operationTimeout': { isNumber: true }, // per-op watchdog (ms)
+  'flaui:elementTableMax': { isNumber: true }, // element registry cap
+  'flaui:autoRecycle': { isBoolean: true }, // layer-5 sidecar recycle (default true)
   // nova2-compat capabilities (accepted; some are advisory no-ops here — see docs/PARITY.md)
   'ms:waitForAppLaunch': { isNumber: true },
   'ms:forcequit': { isBoolean: true },
@@ -121,6 +127,19 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   desiredCapConstraints = constraints;
   locatorStrategies = ['accessibility id', 'id', 'name', 'class name', 'tag name', 'xpath'];
   private sidecar?: Sidecar;
+  /** Path to the sidecar exe — kept so the layer-5 recycle path can relaunch it. */
+  private sidecarExe?: string;
+  /** The /session body used to (re-)open the backend session — replayed on recycle (F1, layer 5). */
+  private sessionBody?: Record<string, unknown>;
+  /** Per-op watchdog timeout (ms) threaded from flaui:operationTimeout (advisory; default in sidecar). */
+  private operationTimeoutMs?: number;
+  /** Single in-flight recycle promise so concurrent failures dedup to one restart (F1). */
+  private recyclePromise?: Promise<void>;
+
+  /** Whether the layer-5 sidecar recycle circuit breaker is enabled (flaui:autoRecycle, default true). */
+  private get autoRecycle(): boolean {
+    return this.opts['flaui:autoRecycle'] !== false;
+  }
 
   async createSession(
     w3cCaps1: W3CDriverCaps<Constraints>,
@@ -134,23 +153,39 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     if (!this.opts.app && !this.opts.appTopLevelWindow) {
       throw new Error(`Either 'appium:app' or 'appium:appTopLevelWindow' must be provided`);
     }
-    this.sidecar = new Sidecar({ command: exe, args: [] });
-    await this.sidecar.start();
-    await this.sidecar.client.session({
+    this.sidecarExe = exe;
+    this.operationTimeoutMs = this.opts['flaui:operationTimeout'];
+    // Build the /session body once so the layer-5 recycle path can replay it (re-attach).
+    this.sessionBody = {
       app: this.opts.app,
       appTopLevelWindow: this.opts.appTopLevelWindow,
       appArguments: this.opts.appArguments,
       appWorkingDir: this.opts.appWorkingDir,
       shouldCloseApp: this.opts.shouldCloseApp ?? true,
+      forcequit: this.opts['ms:forcequit'] ?? false,
       backend: this.opts['flaui:backend'] ?? 'uia3',
-    });
+      connectionTimeout: this.opts['flaui:connectionTimeout'],
+      transactionTimeout: this.opts['flaui:transactionTimeout'],
+      operationTimeout: this.opts['flaui:operationTimeout'],
+      elementTableMax: this.opts['flaui:elementTableMax'],
+    };
+    this.sidecar = new Sidecar({ command: exe, args: [] });
+    await this.sidecar.start();
+    await this.sidecar.client.session(this.sessionBody);
     // nova2-compat: optional settle delay after app launch (seconds).
     const wait = this.opts['ms:waitForAppLaunch'];
     if (typeof wait === 'number' && wait > 0) await new Promise((r) => setTimeout(r, wait * 1000));
-    // nova2-compat: optional prerun PowerShell snippet (best effort).
+    // nova2-compat: optional prerun PowerShell snippet. PowerShell is a SCOPED INSECURE feature
+    // (ADR-014): prerun executes arbitrary PowerShell, so it MUST be gated exactly like the
+    // `windows: powershell` script — fail loud if the feature is not enabled (F23).
     const prerun = this.opts.prerun as { script?: string; command?: string } | undefined;
     if (prerun?.script || prerun?.command) {
-      await this.op({ op: 'powershell', script: prerun.script ?? prerun.command ?? '' });
+      this.assertFeatureEnabled('power_shell');
+      await this.op({
+        op: 'powershell',
+        script: prerun.script ?? prerun.command ?? '',
+        timeoutMs: this.opts.powerShellCommandTimeout,
+      });
     }
     return [sessionId, caps];
   }
@@ -170,10 +205,11 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   }
 
   /** Send an op to the sidecar, converting backend error types into W3C/appium error classes
-   * (otherwise base-driver wraps everything as a 500 UnknownError). */
+   * (otherwise base-driver wraps everything as a 500 UnknownError). Wraps every call in the layer-5
+   * health/recycle guard (F1). */
   private async op<T = unknown>(o: BackendOp): Promise<T> {
     try {
-      return await this.sidecar!.client.op<T>(o);
+      return await this.ensureHealthyAndOp<T>(o);
     } catch (e) {
       if (e instanceof RpcError) {
         switch (e.type) {
@@ -183,6 +219,8 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
             throw new errors.NoSuchElementError(e.message);
           case 'invalid selector':
             throw new errors.InvalidSelectorError(e.message);
+          case 'invalid argument':
+            throw new errors.InvalidArgumentError(e.message);
           case 'timeout':
             throw new errors.TimeoutError(e.message);
           default:
@@ -191,6 +229,61 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
       }
       throw e;
     }
+  }
+
+  /**
+   * Anti-hang LAYER 5 (spec §6). Run an op; on a TRANSPORT failure (sidecar dead / connection refused /
+   * /status not ready) — NOT on a structured RpcError, which is a well-formed backend response — recycle
+   * the sidecar once and retry the op a single time. Recycle is deduped via a single restart promise so
+   * concurrent failures collapse to one restart. If recycle/retry fails, the original transport error is
+   * surfaced (mapped to UnknownError by the caller).
+   *
+   * Re-attach: the recycle replays the stored /session body. For an `appTopLevelWindow` session that
+   * re-attaches by HWND; for an `app` session it relaunches the app. Disabled when flaui:autoRecycle=false.
+   */
+  private async ensureHealthyAndOp<T = unknown>(o: BackendOp): Promise<T> {
+    try {
+      return await this.sidecar!.client.op<T>(o);
+    } catch (e) {
+      // Only TRANSPORT errors are recoverable here. A RpcError means the sidecar answered with a clean
+      // error envelope (it's alive) — let it propagate to the W3C mapping.
+      if (e instanceof RpcError || !this.autoRecycle) throw e;
+      const recovered = await this.tryRecycle();
+      if (!recovered) {
+        throw new errors.UnknownError(
+          `sidecar transport failed and could not be recycled: ${(e as Error).message}`,
+        );
+      }
+      // Retry exactly ONCE against the fresh sidecar.
+      return await this.sidecar!.client.op<T>(o);
+    }
+  }
+
+  /** Recycle the sidecar process and re-open the backend session (deduped). Returns true on success. */
+  private async tryRecycle(): Promise<boolean> {
+    if (!this.recyclePromise) {
+      this.recyclePromise = this.doRecycle().finally(() => {
+        this.recyclePromise = undefined;
+      });
+    }
+    try {
+      await this.recyclePromise;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async doRecycle(): Promise<void> {
+    try {
+      await this.sidecar?.stop();
+    } catch {
+      /* the old process is presumed dead; ignore */
+    }
+    const next = new Sidecar({ command: this.sidecarExe!, args: [] });
+    await next.start();
+    await next.client.session(this.sessionBody ?? {});
+    this.sidecar = next;
   }
 
   /** Issue a backend `find` op via the sidecar RPC and return the matched elements. */
@@ -260,7 +353,9 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
         return ids.map(toElement);
       }
       if (ids.length === 0) {
-        throw new Error(`no such element: unable to find an element using xpath '${selector}'`);
+        throw new errors.NoSuchElementError(
+          `unable to find an element using xpath '${selector}'`,
+        );
       }
       return toElement(ids[0]);
     }
@@ -462,18 +557,19 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     const name = script.trim();
     const lower = name.toLowerCase();
     if (lower === 'powershell') {
-      // Scoped insecure feature (ADR-007 rev: optional convenience, NOT the backbone).
-      (this as unknown as { assertFeatureEnabled?: (f: string) => void }).assertFeatureEnabled?.('power_shell');
+      // Scoped insecure feature (ADR-014, reversing ADR-007). Gate must fail LOUD (F22): base-driver
+      // 10.6 provides assertFeatureEnabled, so call it directly — never optional-chain it away.
+      this.assertFeatureEnabled('power_shell');
       const a = ((args as unknown[])?.[0] ?? {}) as { script?: string; command?: string };
       const res = await this.op<{ stdout: string; stderr: string; exitCode: number }>({
         op: 'powershell',
         script: a.script ?? a.command ?? '',
+        timeoutMs: this.opts.powerShellCommandTimeout,
       });
       return res.stdout;
     }
     // nova2-compatible execute scripts for file transfer (also reachable via the standard appium endpoints
-    // below). Each is gated as a scoped insecure feature (ADR-008) using the same optional-call style as
-    // power_shell, so the driver still loads where assertFeatureEnabled isn't present.
+    // below). Each is gated as a scoped insecure feature (ADR-008), failing loud via assertFeatureEnabled.
     if (name === 'pullFile') {
       const a = ((args as unknown[])?.[0] ?? {}) as { path?: string };
       return this.pullFile(a.path ?? '');
@@ -491,20 +587,24 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
 
   // ── File transfer (insecure features, ADR-008) ────────────────────────────────────────────
   // base-driver routes the standard appium endpoints (POST .../appium/device/{pull_file,push_file,
-  // pull_folder}) to these methods. Each is gated with assertFeatureEnabled (optional-call style).
+  // pull_folder}) to these methods. Each is gated with assertFeatureEnabled (fails loud — F22).
+  //
+  // TRUST BOUNDARY (F24): once pull_file/push_file is enabled there is NO path sandbox. ANY absolute
+  // path on the host is readable (pull) or writable (push) by the connected client, running with the
+  // Appium server's privileges. Enable only for fully-trusted clients. See FUNCTIONS.md §6 / README.
   async pullFile(remotePath: string): Promise<string> {
-    (this as unknown as { assertFeatureEnabled?: (f: string) => void }).assertFeatureEnabled?.('pull_file');
+    this.assertFeatureEnabled('pull_file');
     const res = await this.op<{ data: string }>(fileOp('pull', remotePath));
     return res.data;
   }
 
   async pushFile(remotePath: string, base64Data: string): Promise<void> {
-    (this as unknown as { assertFeatureEnabled?: (f: string) => void }).assertFeatureEnabled?.('push_file');
+    this.assertFeatureEnabled('push_file');
     await this.op(fileOp('push', remotePath, base64Data));
   }
 
   async pullFolder(remotePath: string): Promise<string> {
-    (this as unknown as { assertFeatureEnabled?: (f: string) => void }).assertFeatureEnabled?.('pull_file');
+    this.assertFeatureEnabled('pull_file');
     const res = await this.op<{ data: string }>(fileOp('pullFolder', remotePath));
     return res.data;
   }
