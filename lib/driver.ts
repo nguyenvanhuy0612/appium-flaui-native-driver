@@ -114,11 +114,28 @@ const W3C_KEY_TO_VK: Record<string, number> = {
   '': 0x12, // Alt
   '': 0x1b, // Escape
   '': 0x20, // Space
+  '': 0x21, // PageUp
+  '': 0x22, // PageDown
+  '': 0x23, // End
+  '': 0x24, // Home
   '': 0x25, // ArrowLeft
   '': 0x26, // ArrowUp
   '': 0x27, // ArrowRight
   '': 0x28, // ArrowDown
   '': 0x2e, // Delete
+  '': 0x5b, // Meta / Windows key
+  '': 0x70, // F1
+  '': 0x71, // F2
+  '': 0x72, // F3
+  '': 0x73, // F4
+  '': 0x74, // F5
+  '': 0x75, // F6
+  '': 0x76, // F7
+  '': 0x77, // F8
+  '': 0x78, // F9
+  '': 0x79, // F10
+  '': 0x7a, // F11
+  '': 0x7b, // F12
 };
 
 export class FlaUINativeDriver extends BaseDriver<Constraints> {

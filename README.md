@@ -159,7 +159,7 @@ in `inspect.exe`:
 | :--- | :--- | :--- |
 | `accessibility id` | The `AutomationId` attribute. | `CalculatorResults` |
 | `class name` | The `ClassName` attribute. | `TextBlock` |
-| `id` | The `RuntimeId` (decimal, dotted). | `42.333896.3.1` |
+| `id` | Alias of `accessibility id` (matches `AutomationId`) for nova2 compatibility. The dotted `RuntimeId` (e.g. `42.333896.3.1`) is what the driver returns as each element's identity. | `CalculatorResults` |
 | `name` | The `Name` attribute. | `Calculator` |
 | `tag name` | The `ControlType` short name (e.g. `Button`, `Text`). | `Text` |
 | `xpath` | Full XPath 1.0 over any inspect-visible attribute; structural parts run as native UIA conditions. | `(//Button)[2]` |
@@ -255,7 +255,7 @@ A single (or repeated) mouse click via real `SendInput`.
 | :--- | :--- | :--- | :--- | :--- |
 | `elementId` | `string` | no | Element to click. With no `x`/`y`, clicks the element's clickable point (falls back to rect center, with `scrollIntoView`). With `x`/`y`, treats them as an offset from the element's top-left. | — |
 | `x`, `y` | `number` | no | Click coordinates. Without `elementId`, absolute screen coordinates; with `elementId`, an offset. If both are omitted with no element, uses the current cursor position. | cursor pos |
-| `button` | `string` | no | `left`, `middle`, `right`, `back`, `forward`. | `left` |
+| `button` | `string` | no | `left`, `middle`, `right`. | `left` |
 | `times` | `number` | no | Number of clicks (e.g. `2` for double-click). | `1` |
 | `modifierKeys` | `string[] \| string` | no | Keys held during the click: `Shift`, `Ctrl`, `Alt`, `Win`. | — |
 | `durationMs` | `number` | no | Hold time between press and release. | `0` |
@@ -274,7 +274,7 @@ A click-and-drag gesture.
 | `startElementId` / `startX` / `startY` | `string` / `number` | no | Drag start (element center, element-relative offset, or absolute / cursor). | cursor pos |
 | `endElementId` / `endX` / `endY` | `string` / `number` | no | Drag end (same semantics as start). | cursor pos |
 | `button` | `string` | no | `left`, `middle`, `right`. | `left` |
-| `durationMs` | `number` | no | Drag duration. | `1000` |
+| `durationMs` | `number` | no | Drag duration; `0` does an instant drag. | `0` |
 | `modifierKeys` | `string[] \| string` | no | Keys held during the drag. | — |
 
 ```python
@@ -289,7 +289,7 @@ Moves the cursor from a start point to an end point.
 | :--- | :--- | :--- | :--- | :--- |
 | `elementId` / `x` / `y` | `string` / `number` | no | Target point (element center, element-relative offset, or absolute / cursor). | cursor pos |
 | `modifierKeys` | `string[] \| string` | no | Keys held during the move. | — |
-| `durationMs` | `number` | no | Move duration. | `500` |
+| `durationMs` | `number` | no | Move duration; `0` moves instantly. | `0` |
 
 #### `windows: scroll`
 A mouse-wheel scroll gesture.
@@ -299,7 +299,7 @@ A mouse-wheel scroll gesture.
 | `elementId` / `x` / `y` | `string` / `number` | no | Scroll anchor point. | cursor pos |
 | `deltaX` | `number` | no | Horizontal wheel movement (positive = right). | `0` |
 | `deltaY` | `number` | no | Vertical wheel movement (positive = forward/away). | `0` |
-| `amount` | `number` | no | Wheel-click amount (alternative to deltas). | — |
+| `amount` | `number` | no | Wheel-click amount (alternative to deltas). | `1` |
 | `modifierKeys` | `string[] \| string` | no | Keys held during the scroll. | — |
 
 ```python
