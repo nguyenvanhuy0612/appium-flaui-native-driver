@@ -318,7 +318,70 @@ Port nova2's suites and add sidecar-specific coverage.
 
 ---
 
-## 12. Phased roadmap (SDLC)
+## 12. Appium 3 integration & compliance
+
+The driver targets **Appium 3** (the user is integrating with Appium 3). Appium 3 is a *leaner* release
+than the 2.0 architectural overhaul — fewer, but strategically significant, breaking changes. Driver-author
+impacts and how this design complies:
+
+### 12.1 Runtime & packaging
+- **Node ≥ 20.19.0, npm ≥ 10.** Set `engines` in `package.json` to
+  `"node": "^20.19.0 || ^22.12.0 || >=24.0.0"`, `"npm": ">=10"`.
+- **`appium` as a `peerDependency`** with a loose range (`^3.0.0`).
+- **Align `@appium/base-driver` / `@appium/types`** with the versions bundled by Appium 3 (nova2 pins
+  base-driver `^10.x`, which is the Appium-2 line — bump to the Appium-3 line). Validate on install.
+- **Express 5**: Appium 3 upgraded Express v4 → v5 internally. **No impact on us** — the sidecar uses
+  Kestrel (C#), and the TS layer never touches Express directly (base-driver owns the HTTP server).
+
+### 12.2 Protocol — W3C only (JSONWP fully removed)
+- `POST /session` accepts **only** `capabilities` (no `desiredCapabilities`/`requiredCapabilities`).
+- Timeouts use `script` / `pageLoad` / `implicit`; element value endpoint uses the `text` parameter.
+- Legacy touch endpoints are gone → pointer input must go through the **W3C Actions API** (`performActions`)
+  or our `windows:` execute methods. nova2 is already W3C-only, so this is a non-issue; we just must not
+  reintroduce any JSONWP shapes.
+
+### 12.3 Mandatory feature-flag scope prefix
+Any *insecure* feature must be scoped by the driver name. With working driverName `flauinative`:
+- Users enable via `--allow-insecure=flauinative:<feature>` (or wildcard `*:<feature>`).
+- In code, guard with `this.assertFeatureEnabled('<feature>')`; inspect `this.allowInsecure` /
+  `this.denyInsecure` / `this.relaxedSecurityEnabled`.
+- Candidate insecure features for this driver: `power_shell` (if we keep a convenience PS-exec command),
+  `record_screen`, and any file pull/push. **Action:** enumerate and scope them all (an unscoped flag now
+  throws).
+
+### 12.4 Endpoints relocated to drivers
+Appium 3 removed many core endpoints; drivers own them now. This *validates* our design — almost all are
+already `windows:` execute methods inherited from nova2:
+- App lifecycle (`launchApp`/`activateApp`/`terminateApp`/`clearApp`), device interactions
+  (clipboard, key press), screen recording, window management → exposed as `windows:` execute methods.
+- Internal unzip logic removed from core → if we ever accept zipped app payloads, the driver (or sidecar)
+  must decompress itself.
+
+### 12.5 Command surface mechanics (base-driver, Appium 3)
+- **Standard W3C commands:** implement matching methods (e.g. `click`, `setValue`, `getPageSource`).
+- **Custom routes:** `static newMethodMap` to register HTTP routes + handlers.
+- **Execute methods:** `static executeMethodMap` mapping `windows:<name>` → handler; implement
+  `async execute(script, args)` delegating to `this.executeMethod(...)`. This is the modern, manifest-
+  validated way to declare the `windows:` surface — **prefer it over nova2's hand-rolled EXTENSION_COMMANDS
+  string map** so Appium 3 can introspect/validate the commands (and the built-in Inspector can list them).
+- **Capability validation:** via `this.desiredCapConstraints` (our `constraints.ts`).
+- **BiDi:** optional; out of scope for v1.
+
+### 12.6 New niceties we can leverage
+- **Built-in Inspector plugin** (hosted by the server) — declaring commands via `executeMethodMap` makes
+  them discoverable there; good for debugging the new driver.
+- **`X-Appium-Is-Sensitive` header** — clients can mark requests sensitive so values are masked in logs.
+  Relevant for `setValue` into password fields; nothing for us to implement, but worth documenting for users.
+
+### 12.7 Net assessment
+Appium 3 is **low-friction** for this design. The only concrete code obligations: bump `engines` +
+`peerDependencies` + base-driver line, scope every insecure feature flag, and migrate the `windows:`
+command declarations to `executeMethodMap`. Everything protocol-related (W3C-only, relocated endpoints) is
+already satisfied because we inherit nova2's W3C-native, execute-method-based command surface.
+
+---
+
+## 13. Phased roadmap (SDLC)
 
 A standard incremental lifecycle: each phase ends with working, tested, demoable software.
 
@@ -339,7 +402,7 @@ Each phase will get its own implementation plan (via the writing-plans workflow)
 
 ---
 
-## 13. Summary
+## 14. Summary
 
 Fork nova2's battle-tested TypeScript orchestration; replace only the backend seam — from emitting
 PowerShell strings to emitting structured JSON ops executed by a compiled FlaUI (UIA3/UIA2 + MSAA-legacy)
