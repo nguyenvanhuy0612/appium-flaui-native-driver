@@ -394,6 +394,12 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   }
 
   async getAttribute(name: string, elementId: string): Promise<string | null> {
+    // `all` → the full attribute dump (inspect-style set) as a JSON string (W3C getAttribute returns a
+    // string). The object form is also available via execute('windows: getAttributes').
+    if (name === 'all') {
+      const dump = await this.op<Record<string, unknown>>(attributesOp(elementId, 'all'));
+      return JSON.stringify(dump);
+    }
     const res = await this.op<Record<string, unknown>>(attributesOp(elementId, [name]));
     const v = res[name];
     if (v == null) return null;
