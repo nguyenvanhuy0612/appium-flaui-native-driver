@@ -5,6 +5,37 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — 🎉 FULL E2E PASS on real Windows (Notepad)
+
+The whole stack runs for real: **Appium 3.5.0 → FlaUINativeDriver → localhost HTTP RPC → C# FlaUI sidecar
+(UIA3) → Notepad**.
+
+**How it was run:** synced source to `C:\Users\admin\flaui-driver`, `npm install` + `npm run build`,
+published the sidecar (`prebuilt/win-x64/FlaUiSidecar.exe`, self-contained ~189 MB), `appium driver install
+--source=local` (driver `flauinative@0.0.1` linked, alongside `windows@5.4.1` and `novawindows2@1.1.21`).
+Appium server started in the INTERACTIVE session via a Task Scheduler task (LogonType Interactive) so the
+sidecar can launch/automate a visible Notepad; the test client (`scripts/e2e-notepad.mjs`, raw HTTP, no
+webdriverio) drove it from the SSH (Session 0) side.
+
+**Result (`scripts/e2e-notepad.mjs`):**
+- `POST /session` → 200, sessionId returned; appium log confirms BaseDriver 10.6.0 on both sides, sidecar
+  spawned, session created in ~2.4 s.
+- `POST /element {class name: Edit}` → 200, element `42.393566` (real UIA find).
+- `GET /source` → 200, **4611 bytes of correctly-nested XML**:
+  `<Window Name="Untitled - Notepad" ClassName="Notepad" ControlType="Window" ...><Document ...>`.
+- **E2E_PASS**, exit 0.
+
+**Bug found & fixed during the run:** first attempt, `/source` returned 500 — `PageSourceBuilder` used
+`CachedChildren` on the root element, which was obtained OUTSIDE the `CacheRequest`, so FlaUI threw.
+Fixed by switching the DFS to LIVE traversal (`FindAllChildren()` + live property reads). Correct now;
+re-introducing a single-pass CacheRequest (re-fetch start under the active cache) is a logged perf TODO.
+
+**This validates spec §2–§5 end-to-end on the real target.** Remaining for later phases: page-source schema
+parity with nova2 (tag = ProgrammaticName, relative coords, pattern attrs), rawView, actions/attributes/
+input against live apps, the real anti-hang test against a frozen app, win-arm64 binary, README.
+
+---
+
 ## 2026-06-03 (cont.) — TS build GREEN + base-driver wired (verified on Mac)
 
 A subagent made the TypeScript layer build and load cleanly:
