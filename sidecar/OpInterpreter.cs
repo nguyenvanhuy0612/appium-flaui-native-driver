@@ -3,6 +3,8 @@ using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Conditions;
 using FlaUI.Core.Definitions;
+using FlaUI.Core.Input;
+using FlaUI.Core.WindowsAPI;
 
 namespace FlaUiSidecar;
 
@@ -124,6 +126,94 @@ public sealed class OpInterpreter
         return new { done = true };
     }
 
+    /// <summary>Real mouse/keyboard input via FlaUI.Core.Input (ADR-005 rev.1). Requires an interactive
+    /// desktop session. Element-targeted points default to the element's center.</summary>
+    public object? Input(JsonElement op)
+    {
+        var kind = op.GetProperty("kind").GetString();
+        var args = op.GetProperty("args");
+        switch (kind)
+        {
+            case "click":
+            {
+                var pt = ResolvePoint(args);
+                var button = args.TryGetProperty("button", out var b) && b.GetString() == "right"
+                    ? MouseButton.Right : MouseButton.Left;
+                var times = args.TryGetProperty("times", out var t) ? t.GetInt32() : 1;
+                Mouse.MoveTo(pt);
+                for (var i = 0; i < times; i++) Mouse.Click(button);
+                return new { done = true };
+            }
+            case "hover":
+                Mouse.MoveTo(ResolvePoint(args));
+                return new { done = true };
+            case "scroll":
+            {
+                if (args.TryGetProperty("elementId", out _) || args.TryGetProperty("x", out _))
+                    Mouse.MoveTo(ResolvePoint(args));
+                var dy = args.TryGetProperty("deltaY", out var dyv) ? dyv.GetDouble() : 0;
+                var dx = args.TryGetProperty("deltaX", out var dxv) ? dxv.GetDouble() : 0;
+                if (dy != 0) Mouse.Scroll(dy);
+                if (dx != 0) Mouse.HorizontalScroll(dx);
+                return new { done = true };
+            }
+            case "keys":
+            {
+                foreach (var a in args.GetProperty("actions").EnumerateArray())
+                {
+                    if (a.TryGetProperty("pause", out var pz)) { Thread.Sleep(pz.GetInt32()); continue; }
+                    if (a.TryGetProperty("text", out var tx)) { Keyboard.Type(tx.GetString()); continue; }
+                    if (a.TryGetProperty("virtualKeyCode", out var vk))
+                    {
+                        var key = (VirtualKeyShort)vk.GetInt32();
+                        if (a.TryGetProperty("down", out var dn))
+                        {
+                            if (dn.GetBoolean()) Keyboard.Press(key); else Keyboard.Release(key);
+                        }
+                        else { Keyboard.Press(key); Keyboard.Release(key); }
+                    }
+                }
+                return new { done = true };
+            }
+            case "clickAndDrag":
+            {
+                var from = ResolvePointPrefixed(args, "start");
+                var to = ResolvePointPrefixed(args, "end");
+                Mouse.Drag(from, to);
+                return new { done = true };
+            }
+            default: throw new ArgumentException($"unsupported input kind: {kind}");
+        }
+    }
+
+    private System.Drawing.Point ResolvePoint(JsonElement args)
+    {
+        if (args.TryGetProperty("elementId", out var id) && id.GetString() is { Length: > 0 } s)
+        {
+            var el = ResolveOrThrow(s);
+            var r = el.Properties.BoundingRectangle.ValueOrDefault;
+            var x = args.TryGetProperty("x", out var xv) ? r.X + xv.GetInt32() : r.X + r.Width / 2;
+            var y = args.TryGetProperty("y", out var yv) ? r.Y + yv.GetInt32() : r.Y + r.Height / 2;
+            return new System.Drawing.Point(x, y);
+        }
+        return new System.Drawing.Point(args.GetProperty("x").GetInt32(), args.GetProperty("y").GetInt32());
+    }
+
+    private System.Drawing.Point ResolvePointPrefixed(JsonElement args, string prefix)
+    {
+        if (args.TryGetProperty($"{prefix}ElementId", out var id) && id.GetString() is { Length: > 0 } s)
+        {
+            var el = ResolveOrThrow(s);
+            var r = el.Properties.BoundingRectangle.ValueOrDefault;
+            var x = args.TryGetProperty($"{prefix}X", out var xv) ? r.X + xv.GetInt32() : r.X + r.Width / 2;
+            var y = args.TryGetProperty($"{prefix}Y", out var yv) ? r.Y + yv.GetInt32() : r.Y + r.Height / 2;
+            return new System.Drawing.Point(x, y);
+        }
+        return new System.Drawing.Point(
+            args.GetProperty($"{prefix}X").GetInt32(),
+            args.GetProperty($"{prefix}Y").GetInt32());
+    }
+
     /// <summary>Page source as XML, built in one CacheRequest pass (Phase 2). Schema must match nova2.</summary>
     public object Source(JsonElement op)
     {
@@ -220,6 +310,7 @@ public sealed class OpInterpreter
         "BoundingRectangle" => RectOf(el),
         // HWND as hex (used by the attach flow: read it, then re-attach via appTopLevelWindow).
         "NativeWindowHandle" => "0x" + el.Properties.NativeWindowHandle.ValueOrDefault.ToInt64().ToString("X"),
+        "HasKeyboardFocus" => el.Properties.HasKeyboardFocus.ValueOrDefault,
         _ => throw new ArgumentException($"unknown attribute: {name}"),
     };
 

@@ -19,13 +19,16 @@ import {
   attributesOp,
   actionOp,
   sourceOp,
+  inputOp,
   type BackendOp,
   type BasicProps,
 } from './backend/ops.js';
 import {
   buildWindowsCommandOp,
   isSupportedWindowsCommand,
+  isSupportedInputCommand,
   SUPPORTED_WINDOWS_COMMANDS,
+  INPUT_COMMANDS,
 } from './commands/extensions.js';
 import { xpathToElementIds, type FoundElement } from './xpath/index.js';
 
@@ -52,12 +55,16 @@ const WINDOWS_METHOD_PREFIX = 'windowsCmd_';
 // Appium 3 execute-method manifest: one entry per `windows:<name>` element command. base-driver's
 // executeMethod calls `this[command](...positionalParams)` WITHOUT the script name, so each command needs
 // its OWN method — we generate `windowsCmd_<name>` methods on the prototype below (after the class).
-const executeMethodMap = Object.fromEntries(
-  SUPPORTED_WINDOWS_COMMANDS.map((name) => [
+const executeMethodMap = Object.fromEntries([
+  ...SUPPORTED_WINDOWS_COMMANDS.map((name) => [
     `windows: ${name}`,
     { command: `${WINDOWS_METHOD_PREFIX}${name}`, params: { required: ['elementId'], optional: ['value'] } },
   ]),
-) as unknown as ExecuteMethodMap<FlaUINativeDriver>;
+  ...Object.entries(INPUT_COMMANDS).map(([name, spec]) => [
+    `windows: ${name}`,
+    { command: `${WINDOWS_METHOD_PREFIX}${name}`, params: spec.params },
+  ]),
+]) as unknown as ExecuteMethodMap<FlaUINativeDriver>;
 
 export class FlaUINativeDriver extends BaseDriver<Constraints> {
   static newMethodMap = {} as const;
@@ -171,8 +178,9 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   }
 
   async click(elementId: string): Promise<void> {
-    // Default element "click" maps to UIA Invoke; W3C Actions-based pointer click arrives in Phase 5.
-    await this.sidecar!.client.op(actionOp(elementId, 'invoke'));
+    // Real pointer click at the element's center (nova2/W3C semantics). UIA Invoke stays available
+    // separately as `windows: invoke`.
+    await this.sidecar!.client.op(inputOp('click', { elementId }));
   }
 
   async setValue(text: string | string[], elementId: string): Promise<void> {
@@ -234,14 +242,36 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     const args = value === undefined ? {} : { value };
     return this.sidecar!.client.op(buildWindowsCommandOp(action, elementId, args));
   }
+
+  /** Shared implementation for every `windows:` INPUT command (mouse/keyboard via FlaUI.Core.Input). */
+  async runWindowsInput(kind: string, args: Record<string, unknown>): Promise<unknown> {
+    if (!isSupportedInputCommand(kind)) throw new Error(`unsupported windows: input command: ${kind}`);
+    return this.sidecar!.client.op(inputOp(kind as 'click' | 'hover' | 'keys' | 'scroll' | 'clickAndDrag', args));
+  }
 }
 
 // Generate one method per `windows:` command. base-driver's executeMethod looks up `this[command]` by name
-// and calls it with positional params [elementId, value], so each command must be a distinct method.
+// and calls it with positional params, so each command must be a distinct method.
 for (const name of SUPPORTED_WINDOWS_COMMANDS) {
   Object.defineProperty(FlaUINativeDriver.prototype, `${WINDOWS_METHOD_PREFIX}${name}`, {
     value: function (this: FlaUINativeDriver, elementId: string, value?: unknown) {
       return this.runWindowsAction(name, elementId, value);
+    },
+    writable: true,
+    configurable: true,
+  });
+}
+// Input commands have per-command param lists: rebuild the named-args object from the positional args
+// (base-driver passes them in the declared required+optional order).
+for (const [name, spec] of Object.entries(INPUT_COMMANDS)) {
+  const paramNames = [...spec.params.required, ...spec.params.optional];
+  Object.defineProperty(FlaUINativeDriver.prototype, `${WINDOWS_METHOD_PREFIX}${name}`, {
+    value: function (this: FlaUINativeDriver, ...args: unknown[]) {
+      const named: Record<string, unknown> = {};
+      paramNames.forEach((p, i) => {
+        if (args[i] !== undefined) named[p] = args[i];
+      });
+      return this.runWindowsInput(name, named);
     },
     writable: true,
     configurable: true,

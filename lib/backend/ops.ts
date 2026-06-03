@@ -54,3 +54,8 @@ export const actionOp = (id: string, action: string, args?: Record<string, unkno
 
 export const sourceOp = (startId: string, rawView?: boolean): BackendOp =>
   ({ op: 'source', startId, rawView });
+
+export const inputOp = (
+  kind: Extract<BackendOp, { op: 'input' }>['kind'],
+  args: Record<string, unknown>,
+): BackendOp => ({ op: 'input', kind, args });

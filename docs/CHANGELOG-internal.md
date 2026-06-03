@@ -5,6 +5,23 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — Phase 5 input layer via FlaUI.Core.Input (E2E PASS)
+
+**ADR-005 revised:** instead of porting nova2's koffi/Win32 input layer to TS, input is implemented in the
+**sidecar** with FlaUI's native `Mouse`/`Keyboard` (SendInput wrappers) — far less code, same trusted
+library, input timing next to UIA state. Compiled first try on Windows.
+
+**New:** `input` op (click/hover/scroll/keys/clickAndDrag) in OpInterpreter; element-targeted points default
+to center; `windows:` input commands with per-command param lists (INPUT_COMMANDS) and positional-args
+reconstruction in the generated prototype methods; W3C `click` now performs a REAL pointer click (UIA Invoke
+remains as `windows: invoke`); `HasKeyboardFocus` readable as attribute.
+
+**E2E verified on Windows:** real click → `HasKeyboardFocus="true"` ✅; real typing (`windows: keys`,
+`Keyboard.Type`) → Value reads back `typed-via-keys` ✅; scroll/hover 200 ✅; everything previous (incl.
+attach flow) still green. clickAndDrag implemented but needs an observable scenario to verify.
+
+---
+
 ## 2026-06-03 (cont.) — Parity batch 2: attach-to-window + page-source schema parity (E2E PASS)
 
 **Both E2E phases green on Windows:**

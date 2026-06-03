@@ -16,7 +16,7 @@ _Last updated 2026-06-03._
 | getAttribute | ✅ | UIA props + `Value` (ValuePattern) |
 | setValue | ✅ | ValuePattern.SetValue |
 | clear | ✅ | setValue "" |
-| click | 🟡 | maps to UIA Invoke (real pointer click = Phase 5) |
+| click | ✅ | REAL pointer click at element center (verified: focuses the target); UIA Invoke stays as `windows: invoke` |
 | execute | ✅ | routes `windows:` via executeMethodMap |
 | getText | ✅ | ValuePattern.Value ?? Name |
 | getName | 🟡 | → Name |
@@ -46,12 +46,13 @@ _Last updated 2026-06-03._
 
 ## `windows:` execute commands (nova2 has 35)
 
-**Implemented (19):** invoke, expand, collapse, toggle, select, addToSelection, removeFromSelection,
-setFocus, scrollIntoView, **setValue ✅**, maximize, minimize, restore, close (🟡), plus reads:
-**getValue ✅**, isMultiple 🟡, selectedItem 🟡, allSelectedItems 🟡, getAttributes 🟡.
+**Implemented (24):** invoke, expand, collapse, toggle, select, addToSelection, removeFromSelection,
+setFocus, scrollIntoView, **setValue ✅**, maximize, minimize, restore, close (🟡), reads:
+**getValue ✅**, isMultiple 🟡, selectedItem 🟡, allSelectedItems 🟡, getAttributes 🟡, and input
+(FlaUI.Core.Input, ADR-005 rev.1): **keys ✅**, **click ✅**, **hover ✅**, **scroll ✅**, clickAndDrag 🟡.
 
-**Not yet (16):**
-- *Input (Phase 5, needs Win32/koffi or sidecar input):* keys, click, hover, scroll, clickAndDrag, typeDelay.
+**Not yet (11):**
+- *Input options:* typeDelay.
 - *Clipboard:* getClipboard, setClipboard.
 - *App/window/process:* launchApp, closeApp, setProcessForeground.
 - *Session scoping:* cacheRequest, scopeSession, resetSessionRoot.
@@ -90,8 +91,10 @@ scopeSession/resetSessionRoot); (c) screenshots + recording; (d) attach-to-windo
 (`appTopLevelWindow`, `appArguments`, `shouldCloseApp`, ...); (e) page-source schema parity + rawView;
 (f) `-windows uiautomation` raw-condition strategy. PowerShell-only features are intentionally not ported.
 
-**Done since:** (d) attach caps (`appTopLevelWindow` ✅, `shouldCloseApp` ✅, `appArguments`/`appWorkingDir` 🟡)
-and (e) page-source schema parity (full attribute set, relative coords, pattern attrs) — both E2E-verified.
+**Done since:** (d) attach caps + (e) page-source schema parity + **the input layer** (windows: keys/click/
+hover/scroll/clickAndDrag via FlaUI.Core.Input, and W3C `click` as a real pointer click) — all E2E-verified
+except clickAndDrag (implemented, needs an observable scenario).
 
-**Next (decided):** the input layer (Phase 5: keys/click/hover/scroll/clickAndDrag + W3C Actions), then
-screenshots, rawView, `-windows uiautomation`, win-arm64, and the real frozen-app anti-hang test (Phase 4).
+**Next (decided):** W3C `performActions` (Actions API), screenshots (`getScreenshot`/element), clipboard,
+app-lifecycle (`launchApp`/`closeApp`/`setProcessForeground`), then rawView, `-windows uiautomation`,
+recording, the real frozen-app anti-hang test (Phase 4), and win-arm64.

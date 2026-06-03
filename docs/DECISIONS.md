@@ -68,6 +68,12 @@ unify timing with UIA focus state) is a later optimization, only if focus-race b
 
 **Consequences:** Input timing and UIA state live in two processes; acceptable for v1. Revisit per spec §11.1.
 
+**Revision 1 (2026-06-03): input moved INTO the sidecar via `FlaUI.Core.Input`.** When implementing Phase 5
+we found FlaUI ships native `Mouse`/`Keyboard` (SendInput wrappers) — far less code than porting nova2's
+koffi/Win32 layer, same library we already trust, and input timing now lives next to UIA state. Verified on
+Windows: pointer click focuses the target (HasKeyboardFocus=true) and `Keyboard.Type` text reads back via
+ValuePattern. The TS `winapi` port is no longer planned.
+
 ---
 
 ## ADR-006 — `-windows uiautomation` strategy = structured-condition JSON grammar

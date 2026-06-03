@@ -52,3 +52,23 @@ export function buildWindowsCommandOp(
   if (!action) throw new Error(`unsupported windows: command: ${name}`);
   return actionOp(elementId, action, args);
 }
+
+/**
+ * `windows:` INPUT commands (real mouse/keyboard via FlaUI.Core.Input in the sidecar — ADR-005 rev.1).
+ * Unlike action commands these have per-command parameter lists; the driver turns the positional
+ * executeMethod args back into a named-args object in this declared order.
+ */
+export const INPUT_COMMANDS: Readonly<Record<string, { params: { required: string[]; optional: string[] } }>> =
+  Object.freeze({
+    click: { params: { required: [], optional: ['elementId', 'x', 'y', 'button', 'times'] } },
+    hover: { params: { required: [], optional: ['elementId', 'x', 'y'] } },
+    scroll: { params: { required: [], optional: ['elementId', 'x', 'y', 'deltaX', 'deltaY'] } },
+    keys: { params: { required: ['actions'], optional: [] } },
+    clickAndDrag: {
+      params: { required: [], optional: ['startElementId', 'startX', 'startY', 'endElementId', 'endX', 'endY'] },
+    },
+  });
+
+export function isSupportedInputCommand(name: string): boolean {
+  return name in INPUT_COMMANDS;
+}

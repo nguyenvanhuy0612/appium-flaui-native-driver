@@ -92,6 +92,24 @@ async function mainFlow() {
     });
     console.log('[windows:getValue]', gv.status, JSON.stringify(gv.data?.value));
 
+    // Input layer: REAL pointer click focuses the Edit; REAL keyboard types into it.
+    await call('POST', `/session/${sid}/element/${E}/clear`);
+    const clk = await call('POST', `/session/${sid}/element/${E}/click`);
+    const hf = await call('GET', `/session/${sid}/element/${E}/attribute/HasKeyboardFocus`);
+    const ks = await call('POST', `/session/${sid}/execute/sync`, {
+      script: 'windows: keys', args: [{ actions: [{ text: 'typed-via-keys' }] }],
+    });
+    const kv = await call('GET', `/session/${sid}/element/${E}/attribute/Value`);
+    console.log('[click]', clk.status, 'focus=', JSON.stringify(hf.data?.value),
+      '[keys]', ks.status, '->Value', JSON.stringify(kv.data?.value));
+    const sc = await call('POST', `/session/${sid}/execute/sync`, {
+      script: 'windows: scroll', args: [{ elementId: elId, deltaY: -2 }],
+    });
+    const hv = await call('POST', `/session/${sid}/execute/sync`, {
+      script: 'windows: hover', args: [{ elementId: elId }],
+    });
+    console.log('[scroll/hover]', sc.status, hv.status);
+
     pass =
       el.status === 200 && !!elId && xml.length > 0 && schemaOk &&
       a1.data?.value === T1 &&
@@ -102,7 +120,10 @@ async function mainFlow() {
       (rect.data?.value?.width ?? 0) > 0 &&
       en.data?.value === true && dis.data?.value === true && sel.data?.value === false &&
       tagEl.status === 200 &&
-      gv.status === 200 && gv.data?.value?.value === T3;
+      gv.status === 200 && gv.data?.value?.value === T3 &&
+      clk.status === 200 && hf.data?.value === 'true' &&
+      ks.status === 200 && kv.data?.value === 'typed-via-keys' &&
+      sc.status === 200 && hv.status === 200;
   } catch (e) {
     console.log('MAIN_ERROR', e?.message || String(e));
   } finally {
