@@ -1,121 +1,141 @@
-# Implemented Functions — appium-flaui-native-driver
+# FlaUINative — API Reference & Support Status
 
-Complete inventory of what the driver implements today.
-Legend: ✅ implemented & **verified on the real Windows box** (own E2E and/or nova2's real suite) ·
-🟡 implemented, not yet individually verified · ⏸ deferred by decision.
+The canonical list of everything this driver supports. FlaUINative is a **standalone Appium 3 driver**
+designed W3C-first on a C# FlaUI (UIA3) sidecar — it is *not* a port of any other driver; where an API
+matches another Windows driver, that is a deliberate compatibility alias, noted as such.
 
-_Last updated 2026-06-03. Source of truth for gaps: [PARITY.md](./PARITY.md)._
+Status: ✅ implemented & **verified on a real Windows machine** · 🟡 implemented, not yet individually
+verified · ⬜ planned · ⏸ out of scope by decision.
+
+_Last updated 2026-06-03._
 
 ---
 
-## 1. Capabilities
+## 1. Session capabilities
 
 | Capability | Status | Behavior |
 |---|---|---|
-| `platformName` | ✅ | must be `Windows` |
-| `appium:automationName` | ✅ | `FlaUINative` |
-| `appium:app` | ✅ | exe path to launch, or **`Root`** for a desktop-tree session |
-| `appium:appTopLevelWindow` | ✅ | attach to an existing window by hex HWND (verified detach/re-attach flow) |
-| `appium:appArguments` / `appium:appWorkingDir` | 🟡 | passed to `ProcessStartInfo` |
-| `appium:shouldCloseApp` | ✅ | default `true`; `false` keeps the app alive across sessions; close works for launched apps (Close()) and attached windows (WindowPattern) |
-| `flaui:backend` | ✅/🟡 | `uia3` (default, verified) / `uia2` (wired, not yet verified) |
-| `ms:waitForAppLaunch` | ✅ | sleeps N seconds after launch |
-| `appium:prerun` | ✅ | `{script}` runs via PowerShell at session start (needs `--allow-insecure=flauinative:power_shell`) |
-| nova2 advisory caps | ✅ accepted | `powerShellCommandTimeout`, `treatStderrAsError`, `postrun`, `typeDelay`, `smoothPointerMove`, `delayBeforeClick/AfterClick`, `releaseModifierKeys`, `convertAbsoluteXPathToRelativeFromElement`, `isolatedScriptExecution`, `ms:forcequit` — accepted so nova2 suites run; currently no-ops |
-| `appium:includeContextElementInSearch` | ✅ | default `true` — finds include the context element itself (nova2 semantics) |
+| `platformName` | ✅ | `Windows` (required) |
+| `appium:automationName` | ✅ | `FlaUINative` (required) |
+| `appium:app` | ✅ | path of the app to launch, or **`Root`** for a whole-desktop session |
+| `appium:appTopLevelWindow` | ✅ | attach to a running window by hex HWND |
+| `appium:appArguments` | 🟡 | command-line arguments for the launched app |
+| `appium:appWorkingDir` | 🟡 | working directory for the launched app |
+| `appium:shouldCloseApp` | ✅ | default `true`; on session end close the launched app (or the attached window) |
+| `flaui:backend` | ✅ uia3 / 🟡 uia2 | UIA backend selection |
+| `ms:waitForAppLaunch` | ✅ | settle delay (seconds) after launch |
+| `appium:prerun` | ✅ | `{script}` PowerShell at session start (requires the `power_shell` feature) |
+| `appium:includeContextElementInSearch` | ✅ | default `true`: searches include the context element itself |
+| Misc compat caps | ✅ accepted | `powerShellCommandTimeout`, `treatStderrAsError`, `postrun`, `typeDelay`, `smoothPointerMove`, `delayBeforeClick/AfterClick`, `releaseModifierKeys`, `convertAbsoluteXPathToRelativeFromElement`, `isolatedScriptExecution`, `ms:forcequit` — accepted (no rejection), currently advisory no-ops |
 
 ## 2. Locator strategies
 
-| Strategy | Status | Maps to |
+| Strategy | Status | Resolves against |
 |---|---|---|
-| `accessibility id` | ✅ | AutomationId |
-| `id` | ✅ | AutomationId (nova2 alias) |
-| `name` | ✅ | Name |
-| `class name` | ✅ | ClassName |
-| `tag name` | ✅ | ControlType (e.g. `Button`, `Document`) |
-| `xpath` | ✅ | **Full XPath 1.0** (below) |
-| `-windows uiautomation` | ⬜ | raw JSON condition — not yet |
+| `accessibility id` / `id` | ✅ | UIA `AutomationId` |
+| `name` | ✅ | UIA `Name` |
+| `class name` | ✅ | UIA `ClassName` |
+| `tag name` | ✅ | UIA `ControlType` (`Button`, `Document`, …) |
+| `xpath` | ✅ | full XPath 1.0 (§3) |
+| `-windows uiautomation` | ⬜ | raw JSON condition grammar (ADR-006) |
 
-### XPath 1.0 engine (93/98 on nova2's own xpath suite vs nova2's 85/98)
-- **Axes (13):** child, descendant, descendant-or-self, self, parent, ancestor, ancestor-or-self,
-  following-sibling, preceding-sibling, following, preceding, attribute, namespace(∅).
-- **Functions (24):** contains, starts-with, string, concat, substring, substring-before/-after,
-  string-length, normalize-space, translate, count, last, position, name, local-name, boolean, not,
-  true, false, number, floor, ceiling, round, sum.
-- **Operators:** `= != < <= > >=`, `+ - * div mod`, `and/or/not()`, `@*` wildcard, unions `|`.
-- **21 attribute predicates** (Name, AutomationId, ClassName, IsEnabled, IsOffscreen, ProcessId, …) pushed
-  to native UIA conditions with typed values; function predicates evaluated TS-side over bulk attributes.
-- Positional semantics (`//X[1]` per-parent vs `(//X)[1]` grouped, `last()`, `position()`),
-  lowercase/control-type aliases (`//button`, `list`→List|DataGrid, appbar/semanticzoom),
-  `//text()`→empty, malformed → W3C `invalid selector`.
+## 3. XPath 1.0 engine
 
-## 3. W3C standard commands
+✅ **Axes (13):** child, descendant(-or-self), self, parent, ancestor(-or-self), following(-sibling),
+preceding(-sibling), attribute, namespace(∅).
+✅ **Functions (24):** contains, starts-with, string, concat, substring(-before/-after), string-length,
+normalize-space, translate, count, last, position, name, local-name, boolean, not, true, false, number,
+floor, ceiling, round, sum.
+✅ **Operators:** `= != < <= > >=`, `+ - * div mod`, `and or not()`, `@*`, unions.
+✅ Structural predicates push down to native UIA conditions (21 typed properties); function predicates
+evaluate in TS over bulk-fetched attributes. Positional semantics (`//X[1]` vs `(//X)[1]`, `last()`,
+`position()`), case-insensitive tags + control-type aliases, `//text()`→empty, malformed → `invalid selector`.
+⬜ `id()` function, attribute-value extraction (`…/@Name` as the result).
 
-| Group | Commands | Status |
+## 4. W3C WebDriver endpoints
+
+| Endpoint (method) | Driver command | Status |
 |---|---|---|
-| Session | createSession, deleteSession, /status | ✅ |
-| Find | findElement, findElements, findElementFromElement, findElementsFromElement (context-scoped) | ✅ |
-| Element write | click (**real pointer click** at center), setValue/sendKeys (ValuePattern), clear | ✅ |
-| Element read | getText (Value??Name), getAttribute (UIA props + `Value`, `IsSelected`, `BoundingRectangle`, `NativeWindowHandle`, `HasKeyboardFocus`…), getProperty, getName (**tag**/ControlType), getElementRect | ✅ |
-| Element state | elementEnabled, elementDisplayed, elementSelected | ✅ |
-| Source | getPageSource — **full nova2 XML schema** (all UIA attrs, x/y relative to root, Window/Transform pattern attrs), correctly nested DFS | ✅ |
-| Screenshots | getScreenshot (session root), getElementScreenshot — PNG base64 via FlaUI Capture | ✅ |
-| Window | getTitle, getWindowHandle, getWindowHandles, getWindowRect, setWindowRect (TransformPattern), maximizeWindow, minimizeWindow | ✅ |
-| Actions | performActions — pointer (move/down/up; viewport/pointer/element-center origins) + key (specials→VK map, printables on keyDown) + pause; releaseActions | ✅ |
-| Execute | execute(script, args) → `windows:` commands & `powershell` | ✅ |
+| `POST /session` · `DELETE /session/:id` | createSession / deleteSession | ✅ |
+| `GET /status` | server status | ✅ |
+| `POST /session/:id/element` (+ `/elements`, from-element variants) | find | ✅ |
+| `POST /element/:id/click` | click — **real pointer click** at center | ✅ |
+| `POST /element/:id/value` | setValue (ValuePattern) | ✅ |
+| `POST /element/:id/clear` | clear | ✅ |
+| `GET /element/:id/text` | getText (Value ?? Name) | ✅ |
+| `GET /element/:id/attribute/:name` · `/property/:name` | getAttribute / getProperty (UIA props + `Value`, `IsSelected`, `BoundingRectangle`, `NativeWindowHandle`, `HasKeyboardFocus`, …) | ✅ |
+| `GET /element/:id/name` | getName → tag (ControlType) | ✅ |
+| `GET /element/:id/rect` | getElementRect | ✅ |
+| `GET /element/:id/enabled` · `/displayed` · `/selected` | element state | ✅ |
+| `GET /session/:id/source` | getPageSource — nested XML, full UIA attribute schema, relative coords, pattern attrs | ✅ |
+| `GET /session/:id/screenshot` · `/element/:id/screenshot` | PNG base64 (FlaUI Capture) | ✅ |
+| `GET /session/:id/title` | getTitle (root window) | ✅ |
+| `GET /window` · `/window/handles` | getWindowHandle(s) | ✅ |
+| `GET/POST /window/rect` | get/setWindowRect (TransformPattern) | ✅ |
+| `POST /window/maximize` · `/minimize` | maximize/minimizeWindow | ✅ |
+| `POST /session/:id/actions` · `DELETE` | performActions / releaseActions — pointer (move/down/up; viewport/pointer/element origins) + key (specials→VK, printables) + pause | ✅ |
+| `POST /session/:id/execute/sync` | execute → extension commands (§5) & scripts (§6) | ✅ |
+| `POST /appium/device/push_file` · `pull_file` · `pull_folder` | pushFile / pullFile / pullFolder (base64; folder → ZIP) | ✅ |
+| `GET /window_handle` (focused el), `getDeviceTime` | — | ⬜ |
 
-**Error surface (W3C-correct):** `no such element` (incl. never-seen/malformed ids), `stale element
-reference` (aged-out runtime ids), `invalid selector`, `timeout`, `unknown error` — all mapped from the
-sidecar through appium error classes (proper 404/400 status codes).
+**Error contract (W3C):** `no such element` (404, incl. never-seen/malformed ids) · `stale element
+reference` (404, aged-out ids) · `invalid selector` (400) · `timeout` · `invalid session id` · `unknown
+error` — mapped end-to-end from the sidecar through appium error classes.
 
-## 4. `windows:` execute commands (30)
+## 5. Extension commands (`execute('windows: <cmd>', [args])`)
 
-| Group | Commands | Status |
+Element args accept `{elementId}` or the W3C element object.
+
+| Group | Command | Status | Notes |
+|---|---|---|---|
+| UIA patterns | `invoke` | 🟡 | InvokePattern |
+| | `toggle`, `expand`, `collapse` | 🟡 | Toggle/ExpandCollapse |
+| | `select`, `addToSelection`, `removeFromSelection` | 🟡 | SelectionItem |
+| | `setFocus`, `scrollIntoView` | 🟡 | Focus / ScrollItem |
+| | `setValue` | ✅ | ValuePattern.SetValue |
+| | `getValue` | ✅ | ValuePattern read |
+| | `isMultiple`, `selectedItem`, `allSelectedItems` | 🟡 | SelectionPattern reads |
+| | `getAttributes` | 🟡 | all UIA props as JSON |
+| | `maximize`, `minimize`, `restore`, `close` | 🟡 | WindowPattern |
+| Real input | `keys` | ✅ | text + virtualKeyCode down/up + pause (SendInput) |
+| | `click` | ✅ | element/coords, left/right, times |
+| | `hover`, `scroll` | ✅ | pointer move / wheel (deltaX/Y) |
+| | `clickAndDrag` | 🟡 | start/end element or coords |
+| Clipboard | `setClipboard`, `getClipboard` | ✅ | `plaintext` AND `image` (PNG) — both verified |
+| App/session | `launchApp`, `closeApp` | 🟡 | relaunch (re-roots session) / close |
+| | `setProcessForeground` | 🟡 | by process name |
+| | `getPageSource` | 🟡 | element-scoped source |
+| | `typeDelay`, `cacheRequest` | 🟡 | accepted (advisory no-ops) |
+
+## 6. Script pass-throughs (`execute('<script>', [args])`)
+
+| Script | Status | Security |
 |---|---|---|
-| UIA patterns (write) | invoke, expand, collapse, toggle, select, addToSelection, removeFromSelection, setFocus, scrollIntoView, **setValue ✅**, maximize, minimize, restore, close | ✅ setValue; others 🟡 |
-| UIA patterns (read) | **getValue ✅**, isMultiple, selectedItem, allSelectedItems, getAttributes | ✅/🟡 |
-| Real input (FlaUI.Core.Input) | **keys ✅** (text + virtualKeyCode down/up + pause), **click ✅** (element/coords, button, times), **hover ✅**, **scroll ✅** (deltaX/Y), clickAndDrag 🟡 | ✅ |
-| Clipboard | **setClipboard ✅ / getClipboard ✅** (plaintext base64; accepts nova2's `b64Content`) | ✅ |
-| App / session | launchApp (re-roots session), closeApp, setProcessForeground (by process name), typeDelay (advisory), cacheRequest (accepted no-op), getPageSource (element-scoped) | 🟡 |
+| `powershell` `{script}` → stdout | ✅ | requires `flauinative:power_shell` |
+| `pullFile` `{path}` / `pushFile` `{path,data}` / `pullFolder` `{path}` | ✅ | `flauinative:pull_file` / `push_file` |
 
-All element commands accept both `{elementId}` and the W3C element-key object (nova2 client style).
+**Enabling insecure features (Appium 3):** the `--allow-insecure` CLI flag does not parse multiple scoped
+features — use a **config file**:
+```json
+{ "server": { "allow-insecure": ["flauinative:power_shell", "flauinative:pull_file", "flauinative:push_file"] } }
+```
+`appium --config <file>`.
 
-## 5. Special execute scripts
+## 7. Stability architecture
 
-| Script | Status | Notes |
-|---|---|---|
-| `powershell` | ✅ | `execute('powershell', {script})` → stdout. Gated as insecure feature `flauinative:power_shell`; runs outside the UIA watchdog so long scripts don't time out |
-| pullFile / pushFile / pullFolder | ⬜ | later (scoped insecure) |
+Five-layer anti-hang (UIA3 Connection/TransactionTimeout → per-op watchdog, fail-fast & session survives →
+STA worker poisoning & replacement → serial queue/backpressure → sidecar recycle), self-contained sidecar
+exe (no .NET/Dev-Mode for users), stdout port handshake + stdin-EOF heartbeat (no orphans).
+Verified by unit tests; the frozen-app E2E + 30-min stress remain planned.
 
-## 6. Stability architecture (the driver's core promise)
-
-- Five-layer anti-hang: UIA3 Connection/TransactionTimeout → per-op watchdog (fail fast, session lives) →
-  worker-thread poisoning & replacement → serial queue/backpressure → sidecar recycle. Watchdog + poisoning
-  proven by unit tests; full frozen-app E2E still planned (Phase 4).
-- Self-contained sidecar exe (no .NET/SDK/Dev-Mode for end users), stdout port handshake, stdin-EOF
-  heartbeat (no orphan processes), W3C error envelopes at every boundary.
-
-## 7. Verified against the user's REAL nova2 e2e suite (head-to-head, same box & server)
-
-| suite | novawindows2 | FlaUINative |
-|---|---|---|
-| smoke (5) | 4/1 | 4/1 (same client-bug fail) |
-| pagesource (1) | – | 1/0 |
-| xpath (98) | 85/13 (~3 min) | **93/5 (25 s)** |
-| smoke_more (20) | 18/1 | **19/1** |
-| click (14) | 6/6 (+2 pending) | 6/6 (+2) — identical failure set |
-
-## 8. Not implemented (and why)
+## 8. Out of scope / planned
 
 | Item | Status |
 |---|---|
-| startRecordingScreen / stopRecordingScreen | ⏸ **dropped for now — user decision 2026-06-03** (would need ffmpeg) |
-| `powershell`-based nova2 internals (`$elementTable` scripts) | ⛔ impossible by design (no PS backend) |
-| prerun/postrun-as-backbone, PS-specific caps | ⛔ ADR-007 |
-| `-windows uiautomation` raw-condition strategy | ⬜ |
-| pull/pushFile/pullFolder | ⬜ |
-| rawView page source | ⬜ |
-| `active` (focused element), getDeviceTime | ⬜ |
-| win-arm64 prebuilt binary | ⬜ (publish script ready; needs an ARM build run) |
-| typeDelay/smoothPointerMove/delay* effects | ⬜ (caps accepted, no effect yet) |
-| Real frozen-app anti-hang E2E + 30-min session-stress | ⬜ (Phase 4 / stable suites) |
+| Screen recording | ⏸ dropped (ADR-012, user decision) |
+| PowerShell-backend internals of other drivers | ⏸ N/A by design |
+| `-windows uiautomation` raw condition | ⬜ |
+| rawView page source · active element · getDeviceTime | ⬜ |
+| win-arm64 prebuilt | ⬜ (publish script ready) |
+| typeDelay/smoothPointerMove/delay* effects | ⬜ |
+| W3C-first own test suite (unit ✅ 110 / smoke / e2e) | 🔄 being built |
