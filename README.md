@@ -486,6 +486,7 @@ dotnet publish sidecar -r win-x64 --self-contained -p:PublishSingleFile=true
 | [`docs/superpowers/specs/2026-06-03-appium-flaui-native-driver-design.md`](docs/superpowers/specs/2026-06-03-appium-flaui-native-driver-design.md) | Architecture & anti-hang design |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | ADRs (incl. ADR-012 screen recording out of scope, ADR-015 security posture) |
 | [`docs/NEXT-STEPS.md`](docs/NEXT-STEPS.md) | Roadmap (remaining phases) |
+| [`docs/CLEAN-REINSTALL.md`](docs/CLEAN-REINSTALL.md) | Fast clean wipe-and-reinstall on Windows test boxes |
 | [`docs/CHANGELOG-internal.md`](docs/CHANGELOG-internal.md) | Verified-vs-authored work log |
 
 ### Known gaps / roadmap
