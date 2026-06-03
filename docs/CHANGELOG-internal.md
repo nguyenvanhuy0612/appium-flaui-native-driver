@@ -5,6 +5,25 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — v0.1.0-beta.3: bring-on-top click + escalating setWindowForeground
+
+User asked the click to **bring the target on top first** (nova2's idea — focus the Window/Pane ancestor —
+but implemented the FlaUI way, not raw PowerShell/Win32), and made `windows: setWindowForeground` the
+**stronger, escalating** raise.
+- `click`/`hover`/`clickAndDrag`: **basic bring-on-top** = `FlaUI Focus()` on the nearest Window/Pane
+  ancestor (FlaUI's `Focus()` natively does `SetForeground()` + thread-attach for windows); Win32 fallback
+  only if it throws. Raw W3C-Actions `move` left untouched (caller controls foreground).
+- `windows: setWindowForeground`: FlaUI `Focus()` first, then **escalate** via Win32 (HWND_TOPMOST toggle →
+  minimize/restore) only if still not foreground; now takes an **elementId** to target that element's
+  top-level window. Returns `{ok}`. **Verified on .44:** restored a minimized Notepad → `{ok:true}`.
+- Build-from-source restored on the .44 box (its checkout had been wiped) → tsc 0, 116 unit, sidecar publish 0.
+
+> **npm incident:** beta.2 was published from the wiped .44 (empty/stale build) → **deprecated**; use
+> **beta.3** (`appium driver install --source=npm appium-flaui-native-driver@beta`). Published from a clean
+> from-source build. GitHub tag `v0.1.0-beta.3`. Re-verify a driver upgrade by **restarting Appium**.
+
+---
+
 ## 2026-06-03 (cont.) — 🏁 v0.1.0-beta.1 (stability proven, packaged, install-verified)
 
 > **Published to npm 2026-06-03:** `appium-flaui-native-driver@0.1.0-beta.1` (dist-tags `beta` + `latest`),
