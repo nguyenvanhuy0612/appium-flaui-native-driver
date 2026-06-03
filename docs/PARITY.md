@@ -1,4 +1,8 @@
-# Parity Matrix — novawindows2 → FlaUINative
+# Parity Matrix — novawindows2 → FlaUINative *(historical reference)*
+
+> **Note:** FlaUINative is a standalone W3C-first driver; nova2 served as a reference during bring-up.
+> The CANONICAL, maintained API/status table is [`FUNCTIONS.md`](./FUNCTIONS.md). This file is kept as a
+> snapshot of the compatibility analysis.
 
 What `appium-novawindows2-driver` exposes vs what `appium-flaui-native-driver` implements today.
 Legend: ✅ implemented & **verified on real Windows** · 🟡 implemented, not yet live-verified · ⬜ not yet · ⛔ intentionally dropped (ADR).
