@@ -99,7 +99,7 @@ const executeMethodMap = Object.fromEntries([
   ['windows: typeDelay', { command: `${WINDOWS_METHOD_PREFIX}typeDelay`, params: { required: ['delay'], optional: [] } }],
   ['windows: cacheRequest', { command: `${WINDOWS_METHOD_PREFIX}cacheRequest`, params: { required: [], optional: ['treeScope', 'treeFilter', 'conditions', 'automationElementMode'] } }],
   ['windows: getPageSource', { command: `${WINDOWS_METHOD_PREFIX}getPageSource`, params: { required: [], optional: ['elementId'] } }],
-  ['windows: setWindowForeground', { command: `${WINDOWS_METHOD_PREFIX}setWindowForeground`, params: { required: [], optional: [] } }],
+  ['windows: setWindowForeground', { command: `${WINDOWS_METHOD_PREFIX}setWindowForeground`, params: { required: [], optional: ['elementId', W3C_ELEMENT_KEY] } }],
 ]) as unknown as ExecuteMethodMap<FlaUINativeDriver>;
 
 // W3C key codepoints (subset) → Windows virtual-key codes for performActions key sequences.
@@ -649,10 +649,12 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     return this.op({ op: 'window', action: 'minimize' });
   }
 
-  /** Bring the session window to the foreground (Win32 SetForegroundWindow + focus). Useful before real
-   * keyboard/mouse input when another window holds the foreground. */
-  async windowsCmd_setWindowForeground(): Promise<unknown> {
-    return this.op({ op: 'window', action: 'foreground' });
+  /** Strong, escalating foreground: FlaUI `Focus()`/SetForeground first, then Win32 topmost-toggle →
+   * minimize/restore if still not on top. With an elementId it targets that element's top-level window;
+   * otherwise the session window. Use when the basic focus a `click` does isn't enough. */
+  async windowsCmd_setWindowForeground(elementId?: string, w3cElement?: string): Promise<unknown> {
+    const id = elementId ?? w3cElement;
+    return this.op(id ? { op: 'window', action: 'foreground', elementId: id } : { op: 'window', action: 'foreground' });
   }
 
   // ── windows: app/session-level commands (nova2-compat) ────────────────────────────────────

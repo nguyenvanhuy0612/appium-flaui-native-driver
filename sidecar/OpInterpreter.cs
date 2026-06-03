@@ -213,9 +213,20 @@ public sealed class OpInterpreter
                 root.Patterns.Window.Pattern.SetWindowVisualState(WindowVisualState.Minimized);
                 return RectOf(root);
             case "foreground":
-                Win32.ForceForeground(root.Properties.NativeWindowHandle.ValueOrDefault);
-                try { root.Focus(); } catch { /* best effort */ }
-                return new { done = true };
+            {
+                // Stronger/escalating activation (vs the basic focus a `click` does). Targets the given
+                // element's top-level Window/Pane when an elementId is supplied, else the session root.
+                // FlaUI-idiomatic first (nova2 used raw Win32 over PowerShell; FlaUI's own SetForeground/
+                // Focus already wrap SetForegroundWindow + thread-attach), then escalate via Win32
+                // (topmost toggle → minimize/restore) only if the window still isn't on top.
+                var target = root;
+                if (op.TryGetProperty("elementId", out var fid) && fid.GetString() is { Length: > 0 } fs)
+                    target = TopLevelWindow(ResolveOrThrow(fs));
+                try { target.Focus(); } catch { /* best effort */ }   // FlaUI: window Focus() == SetForeground()
+                var h = SafeHwnd(target);
+                if (h != IntPtr.Zero && !Win32.IsForeground(h)) Win32.ForceForegroundStrong(h);
+                return new { ok = h == IntPtr.Zero || Win32.IsForeground(h) };
+            }
             default: throw new ArgumentException($"unsupported window action: {action}");
         }
     }
@@ -230,6 +241,7 @@ public sealed class OpInterpreter
         {
             case "click":
             {
+                BasicBringOnTopFromArgs(args);   // nova2 parity: focus the Window/Pane ancestor first
                 var pt = ResolvePoint(args);
                 var button = args.TryGetProperty("button", out var b) && b.GetString() == "right"
                     ? MouseButton.Right : MouseButton.Left;
@@ -239,7 +251,10 @@ public sealed class OpInterpreter
                 return new { done = true };
             }
             case "hover":
-            case "move":
+                BasicBringOnTopFromArgs(args);
+                Mouse.MoveTo(ResolvePoint(args));
+                return new { done = true };
+            case "move":   // raw W3C-Actions move: caller controls foreground; do NOT auto-focus here
                 Mouse.MoveTo(ResolvePoint(args));
                 return new { done = true };
             case "down":
@@ -282,6 +297,8 @@ public sealed class OpInterpreter
             }
             case "clickAndDrag":
             {
+                if (args.TryGetProperty("startElementId", out var sidv) && sidv.GetString() is { Length: > 0 } sids)
+                    BasicBringOnTop(ResolveOrThrow(sids));
                 var from = ResolvePointPrefixed(args, "start");
                 var to = ResolvePointPrefixed(args, "end");
                 Mouse.Drag(from, to);
@@ -289,6 +306,45 @@ public sealed class OpInterpreter
             }
             default: throw new ArgumentException($"unsupported input kind: {kind}");
         }
+    }
+
+    // ── bring-on-top helpers (click = basic focus, nova2 parity) ─────────────────────────────
+    private void BasicBringOnTopFromArgs(JsonElement args)
+    {
+        if (args.TryGetProperty("elementId", out var idv) && idv.GetString() is { Length: > 0 } id)
+            BasicBringOnTop(ResolveOrThrow(id));
+    }
+
+    /// <summary>nova2-style basic activation: focus the nearest Window/Pane ancestor; if SetFocus throws
+    /// (some app windows report not-focusable), fall back to a basic Win32 SetForegroundWindow. Best-effort.</summary>
+    private void BasicBringOnTop(AutomationElement el)
+    {
+        try
+        {
+            var w = TopLevelWindow(el);
+            try { w.Focus(); }
+            catch { var h = SafeHwnd(w); if (h != IntPtr.Zero) Win32.ForceForeground(h); }
+        }
+        catch { /* best-effort, never fail the click */ }
+    }
+
+    /// <summary>Nearest ancestor-or-self that is a Window or Pane (the app's top-level container).</summary>
+    private AutomationElement TopLevelWindow(AutomationElement el)
+    {
+        var walker = _automation.TreeWalkerFactory.GetControlViewWalker();
+        var cur = el;
+        while (cur is not null)
+        {
+            var ct = cur.Properties.ControlType.ValueOrDefault;
+            if (ct is ControlType.Window or ControlType.Pane) return cur;
+            cur = walker.GetParent(cur);
+        }
+        return el;
+    }
+
+    private static IntPtr SafeHwnd(AutomationElement el)
+    {
+        try { return el.Properties.NativeWindowHandle.ValueOrDefault; } catch { return IntPtr.Zero; }
     }
 
     private static MouseButton ButtonOf(JsonElement args) =>

@@ -15,12 +15,22 @@ internal static class Win32
     [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint a, uint b, bool attach);
     [DllImport("user32.dll")] private static extern bool MoveWindow(IntPtr h, int x, int y, int w, int ht, bool repaint);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr h, out RECT rect);
+    [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr h);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT { public int Left, Top, Right, Bottom; }
 
     private const int SW_RESTORE = 9;
+    private const int SW_MINIMIZE = 6;
+    private static readonly IntPtr HWND_TOPMOST = new(-1);
+    private static readonly IntPtr HWND_NOTOPMOST = new(-2);
+    private const uint SWP_NOSIZE = 0x1, SWP_NOMOVE = 0x2, SWP_NOACTIVATE = 0x10, SWP_SHOWWINDOW = 0x40;
 
+    public static bool IsForeground(IntPtr hwnd) => GetForegroundWindow() == hwnd;
+
+    /// <summary>Basic activation: restore + AttachThreadInput trick + SetForegroundWindow. Used by the
+    /// `click` bring-on-top (nova2 parity — light, no topmost games).</summary>
     public static void ForceForeground(IntPtr hwnd)
     {
         if (hwnd == IntPtr.Zero) return;
@@ -38,6 +48,23 @@ internal static class Win32
         {
             if (attached) AttachThreadInput(fgThread, thisThread, false);
         }
+    }
+
+    /// <summary>Strong, escalating foreground for `windows: setWindowForeground`: basic activation, then —
+    /// if the window still isn't foreground — a HWND_TOPMOST→HWND_NOTOPMOST toggle to jump it above, then a
+    /// minimize→restore as a last resort. Each step re-checks so we stop as soon as it's on top.</summary>
+    public static void ForceForegroundStrong(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return;
+        ForceForeground(hwnd);
+        if (IsForeground(hwnd)) return;
+        // Escalate 1: bounce through always-on-top so the window is raised above the current foreground.
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+        SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+        ForceForeground(hwnd);
+        if (IsForeground(hwnd)) return;
+        // Escalate 2: a minimize/restore cycle forces the shell to reactivate the window.
+        if (!IsIconic(hwnd)) { ShowWindow(hwnd, SW_MINIMIZE); ShowWindow(hwnd, SW_RESTORE); ForceForeground(hwnd); }
     }
 
     /// <summary>Win32 fallback move/resize for windows without a usable UIA TransformPattern (F16).
