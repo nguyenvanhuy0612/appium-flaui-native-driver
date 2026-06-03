@@ -5,6 +5,29 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — own W3C-first conformance suite (smoke + e2e) + title() routing fix
+
+Built the driver's OWN test suite (subagent; cut off by a session limit mid-run, work preserved & verified
+by the orchestrator):
+- `tests/lib/w3c-client.ts` (raw fetch W3C client, returns `{status,value,error}`) + `helpers.ts`
+  (SessionPool self-cleanup, OS-independent `findEditable`/`findWindow`, PNG/XML assert helpers).
+- `tests/smoke/smoke.e2e.spec.ts` — critical path (status→session→find→source→screenshot→value→delete).
+- `tests/e2e/01..09` — W3C-conformance-checklist titles: session, find, element, source+screenshot,
+  window, actions, extensions, files+powershell, errors. Env-driven (`APPIUM_URL`/`TARGET_APP`),
+  no OS-version selectors, protocol-exact (HTTP status + `value.error`).
+- npm scripts `test:smoke`, `test:e2e:w3c`.
+- **Driver fix:** W3C `GET /session/:id/title` routes to command name `title` (not `getTitle`) — added
+  `title()` (getTitle kept as alias).
+
+**Verified on the Windows box:** smoke **1/1**; e2e **64 passing**. The 5 "failures" are all input/focus
+assertions (click/actions/keys → HasKeyboardFocus/value) — they **PASS when their files run in isolation
+right after a fresh Appium start**, and fail only in the full back-to-back run. Root cause is the
+interactive-desktop foreground contention across sequential sessions (real SendInput needs the target
+window foregrounded on an active desktop), NOT a driver defect — UIA-only ops (find/setValue/source) pass
+throughout. Hardening the input specs to foreground the window before asserting focus is the follow-up.
+
+---
+
 ## 2026-06-03 (cont.) — pullFile/pushFile/pullFolder + image clipboard (subagent, all VERIFIED)
 
 - **File transfer** (insecure features `flauinative:pull_file`/`push_file`): new `file` op — pull→base64,

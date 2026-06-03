@@ -6,3 +6,4 @@ sidecar/tests/bin/
 sidecar/tests/obj/
 prebuilt/
 *.log
+E2E_RESULTS/

@@ -11,6 +11,8 @@
   "scripts": {
     "build": "tsc -b",
     "test:unit": "mocha --import=tsx 'tests/unit/**/*.spec.ts'",
+    "test:smoke": "mocha --import=tsx --timeout 60000 'tests/smoke/**/*.e2e.spec.ts'",
+    "test:e2e:w3c": "mocha --import=tsx --timeout 180000 --slow 30000 'tests/e2e/**/*.e2e.spec.ts'",
     "test:e2e": "mocha --import=tsx 'tests/e2e/**/*.e2e.spec.ts'",
     "publish:sidecar": "node scripts/publish-sidecar.mjs"
   },

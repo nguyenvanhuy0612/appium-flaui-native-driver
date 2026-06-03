@@ -509,8 +509,14 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   }
 
   // ── W3C window commands (operate on the session root window) ──────────────────────────────
-  async getTitle(): Promise<string> {
+  // base-driver routes `GET /session/:id/title` to the command name `title` (see protocol/routes.js),
+  // so the method MUST be named `title`. `getTitle` is kept as an alias for internal/nova2-style callers.
+  async title(): Promise<string> {
     return (await this.op<{ value: string }>({ op: 'window', action: 'title' })).value;
+  }
+
+  async getTitle(): Promise<string> {
+    return this.title();
   }
 
   async getWindowHandle(): Promise<string> {
