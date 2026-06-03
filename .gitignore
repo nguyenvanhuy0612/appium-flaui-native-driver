@@ -7,6 +7,7 @@ sidecar/tests/obj/
 prebuilt/
 *.log
 E2E_RESULTS/
+temp/
 .npmrc
 *.tgz
 .env
