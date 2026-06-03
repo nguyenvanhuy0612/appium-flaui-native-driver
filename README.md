@@ -66,10 +66,15 @@ size note below.
 ## Install
 
 ```bash
-# from a local checkout containing prebuilt/<arch>/FlaUiSidecar.exe
+# from npm (beta is published):
+appium driver install --source=npm appium-flaui-native-driver@beta
+
+# …or from a local checkout/tarball containing prebuilt/<arch>/FlaUiSidecar.exe:
 appium driver install --source=local /path/to/appium-flaui-native-driver
-# (npm publish planned)
 ```
+
+> The npm beta ships the **win-x64** sidecar only (~180 MB unpacked). For arm64, install from a local
+> build for now (full per-arch npm packaging lands at GA — see `docs/DECISIONS.md` ADR-013).
 
 ## Quick start
 

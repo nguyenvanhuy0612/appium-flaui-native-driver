@@ -7,6 +7,13 @@ project's evolution. Newest first.
 
 ## 2026-06-03 (cont.) — 🏁 v0.1.0-beta.1 (stability proven, packaged, install-verified)
 
+> **Published to npm 2026-06-03:** `appium-flaui-native-driver@0.1.0-beta.1` (dist-tags `beta` + `latest`),
+> **win-x64 only** (~180 MB unpacked; arm64 omitted from the npm tarball to keep it light — local-build for
+> arm64, per-arch split at GA per ADR-013). Install: `appium driver install --source=npm
+> appium-flaui-native-driver@beta`. Published under npm user `nguyenvanhuy0612`. NOTE: the first publish
+> token lacked write scope (E404 on PUT); a write-enabled token succeeded. Token kept only in a local,
+> gitignored `.npmrc` (never committed) — rotate the one pasted in chat.
+
 - **Headline stability PROVEN on Windows** via `tests/e2e/11-hang-injection.e2e.spec.ts` (WinForms HangApp,
   UI thread frozen 60 s): op → W3C `timeout` in ~5 s (watchdog), `/status` 200/43 ms, `DELETE` bounded
   (~5 s, app-Kill fallback), fresh session recovers. **No driver changes needed.** e2e now **75/75**.
