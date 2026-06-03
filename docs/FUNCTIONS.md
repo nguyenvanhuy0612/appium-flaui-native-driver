@@ -86,7 +86,7 @@ evaluate in TS over bulk-fetched attributes. Positional semantics (`//X[1]` vs `
 | `POST /element/:id/value` | setValue (ValuePattern) | ✅ |
 | `POST /element/:id/clear` | clear | ✅ |
 | `GET /element/:id/text` | getText (Value ?? Name) | ✅ |
-| `GET /element/:id/attribute/:name` · `/property/:name` | getAttribute / getProperty (UIA props + `Value`, `IsSelected`, `BoundingRectangle`, `NativeWindowHandle`, `HasKeyboardFocus`, …) | ✅ |
+| `GET /element/:id/attribute/:name` · `/property/:name` | getAttribute / getProperty — **full UIA resolution** (Phase A): any direct property; **pattern dot-notation** (`Value.Value`, `Toggle.ToggleState`, `Window.CanMaximize`, `RangeValue.*`, `Scroll.*`, `Grid.*`, …); **`LegacyIAccessible.*`** + `legacy*` aliases (`Role`/`State` as `"text (0xHEX)"`); **`Is<Pattern>PatternAvailable`** flags; `ProviderDescription`, `IsDialog`, `BoundingRectangle` `{x,y,width,height}`. Matches inspect.exe. W3C values are strings; unsupported name → `null`. | ✅ |
 | `GET /element/:id/name` | getName → tag (ControlType) | ✅ |
 | `GET /element/:id/rect` | getElementRect | ✅ |
 | `GET /element/:id/enabled` · `/displayed` · `/selected` | element state | ✅ |
