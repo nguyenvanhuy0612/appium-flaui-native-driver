@@ -56,11 +56,11 @@ describe('xpath engine', () => {
     expect(ops[0].scope).to.equal('descendants');
   });
 
-  it('/Window/Edit => two chained child finds from root', async () => {
+  it('/Window/Edit => child find from root (+ child-or-self self check) then Edit', async () => {
     const { ops, find } = makeFake((op) => {
       // first step resolves the Window, second resolves the Edit
       if (op.condition.kind === 'property' && op.condition.value === 'Window') {
-        return ['win.1'];
+        return op.scope === 'element' ? [] : ['win.1'];
       }
       return ['edit.1'];
     });
@@ -68,16 +68,20 @@ describe('xpath engine', () => {
     const result = await xpathToElementIds('/Window/Edit', true, undefined, find);
 
     expect(result).to.deep.equal(['edit.1']);
-    expect(ops).to.have.length(2);
-
-    expect(ops[0]).to.deep.equal({
+    // An absolute path's first child step is matched as child-or-self (nova2 parity), so the
+    // engine also emits an element-scope self-check find on the root.
+    const childFinds = ops.filter((o) => o.scope === 'children');
+    expect(childFinds[0]).to.deep.equal({
       op: 'find',
       startId: AUTOMATION_ROOT_ID,
       multiple: true,
       scope: 'children',
       condition: { kind: 'property', prop: 'ControlType', value: 'Window' },
     });
-    expect(ops[1]).to.deep.equal({
+    expect(ops.some((o) => o.scope === 'element' && o.startId === AUTOMATION_ROOT_ID)).to.equal(
+      true,
+    );
+    expect(childFinds[childFinds.length - 1]).to.deep.equal({
       op: 'find',
       startId: 'win.1',
       multiple: true,
@@ -203,22 +207,12 @@ describe('xpath engine', () => {
     expect(threw).to.be.instanceOf(InvalidSelectorError);
   });
 
-  it('throws InvalidSelectorError on an unsupported axis (parent)', async () => {
+  it('throws InvalidSelectorError when a reverse axis is used without a walk() backend', async () => {
+    // The legacy bare-find shim cannot satisfy parent:: (needs walk()); it surfaces as invalid.
     const { find } = makeFake(() => ['btn.1']);
     let threw: unknown;
     try {
       await xpathToElementIds('//Button/parent::Window', true, undefined, find);
-    } catch (e) {
-      threw = e;
-    }
-    expect(threw).to.be.instanceOf(InvalidSelectorError);
-  });
-
-  it('throws InvalidSelectorError on an unsupported predicate function', async () => {
-    const { find } = makeFake(() => []);
-    let threw: unknown;
-    try {
-      await xpathToElementIds('//Button[contains(@Name,"x")]', true, undefined, find);
     } catch (e) {
       threw = e;
     }

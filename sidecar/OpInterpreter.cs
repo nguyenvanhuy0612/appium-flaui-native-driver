@@ -365,18 +365,57 @@ public sealed class OpInterpreter
         };
     }
 
-    private static PropertyCondition BuildProperty(ConditionFactory cf, JsonElement c)
+    /// <summary>Build a UIA PropertyCondition for any of the nova2-allowlisted properties, converting the
+    /// JSON value to the property's native type (bool for Is*/HasKeyboardFocus, int for ProcessId, ...).</summary>
+    private PropertyCondition BuildProperty(ConditionFactory cf, JsonElement c)
     {
-        var prop = c.GetProperty("prop").GetString();
+        var prop = c.GetProperty("prop").GetString()!;
         var val = c.GetProperty("value");
-        return prop switch
+        var lib = _automation.PropertyLibrary.Element;
+
+        object value = prop switch
         {
-            "AutomationId" => cf.ByAutomationId(val.GetString()!),
-            "Name" => cf.ByName(val.GetString()!),
-            "ClassName" => cf.ByClassName(val.GetString()!),
-            "ControlType" => cf.ByControlType(Enum.Parse<ControlType>(val.GetString()!)),
+            "IsEnabled" or "IsOffscreen" or "HasKeyboardFocus" or "IsContentElement" or "IsControlElement"
+                or "IsKeyboardFocusable" or "IsPassword" or "IsRequiredForForm"
+                => val.ValueKind == JsonValueKind.String ? bool.Parse(val.GetString()!) : val.GetBoolean(),
+            "ProcessId" => val.ValueKind == JsonValueKind.String ? int.Parse(val.GetString()!) : val.GetInt32(),
+            "ControlType" => Enum.Parse<ControlType>(val.GetString()!, ignoreCase: true),
+            "RuntimeId" => val.GetString()!.Split('.').Select(int.Parse).ToArray(),
+            _ => val.ValueKind switch
+            {
+                JsonValueKind.Number => val.GetDouble(),
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                _ => val.GetString()!,
+            },
+        };
+
+        var property = prop switch
+        {
+            "AutomationId" => lib.AutomationId,
+            "Name" => lib.Name,
+            "ClassName" => lib.ClassName,
+            "ControlType" => lib.ControlType,
+            "LocalizedControlType" => lib.LocalizedControlType,
+            "FrameworkId" => lib.FrameworkId,
+            "HelpText" => lib.HelpText,
+            "ItemStatus" => lib.ItemStatus,
+            "ItemType" => lib.ItemType,
+            "AcceleratorKey" => lib.AcceleratorKey,
+            "AccessKey" => lib.AccessKey,
+            "IsEnabled" => lib.IsEnabled,
+            "IsOffscreen" => lib.IsOffscreen,
+            "IsKeyboardFocusable" => lib.IsKeyboardFocusable,
+            "IsPassword" => lib.IsPassword,
+            "IsRequiredForForm" => lib.IsRequiredForForm,
+            "HasKeyboardFocus" => lib.HasKeyboardFocus,
+            "IsContentElement" => lib.IsContentElement,
+            "IsControlElement" => lib.IsControlElement,
+            "ProcessId" => lib.ProcessId,
+            "RuntimeId" => lib.RuntimeId,
             _ => throw new ArgumentException($"unsupported property: {prop}"),
         };
+        return new PropertyCondition(property, value);
     }
 
     private static TreeScope ParseScope(string s) => s switch
@@ -392,6 +431,8 @@ public sealed class OpInterpreter
     {
         "Name", "AutomationId", "ClassName", "ControlType", "LocalizedControlType",
         "RuntimeId", "IsEnabled", "IsOffscreen", "ProcessId", "FrameworkId", "HelpText",
+        "AcceleratorKey", "AccessKey", "HasKeyboardFocus", "IsContentElement", "IsControlElement",
+        "IsKeyboardFocusable", "IsPassword", "IsRequiredForForm", "ItemStatus", "ItemType", "Orientation",
     };
 
     /// <summary>Read a single attribute by its schema name. TODO (Windows pass): extend to pattern-specific
@@ -418,6 +459,16 @@ public sealed class OpInterpreter
         // HWND as hex (used by the attach flow: read it, then re-attach via appTopLevelWindow).
         "NativeWindowHandle" => "0x" + el.Properties.NativeWindowHandle.ValueOrDefault.ToInt64().ToString("X"),
         "HasKeyboardFocus" => el.Properties.HasKeyboardFocus.ValueOrDefault,
+        "AcceleratorKey" => el.Properties.AcceleratorKey.ValueOrDefault,
+        "AccessKey" => el.Properties.AccessKey.ValueOrDefault,
+        "IsContentElement" => el.Properties.IsContentElement.ValueOrDefault,
+        "IsControlElement" => el.Properties.IsControlElement.ValueOrDefault,
+        "IsKeyboardFocusable" => el.Properties.IsKeyboardFocusable.ValueOrDefault,
+        "IsPassword" => el.Properties.IsPassword.ValueOrDefault,
+        "IsRequiredForForm" => el.Properties.IsRequiredForForm.ValueOrDefault,
+        "ItemStatus" => el.Properties.ItemStatus.ValueOrDefault,
+        "ItemType" => el.Properties.ItemType.ValueOrDefault,
+        "Orientation" => el.Properties.Orientation.ValueOrDefault.ToString(),
         _ => throw new ArgumentException($"unknown attribute: {name}"),
     };
 

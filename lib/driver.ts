@@ -1,7 +1,7 @@
 // FlaUINativeDriver — the Appium 3 driver entry point.
 // AUTHORED ON macOS. Builds against @appium/base-driver@10.6.0 (Appium-3 line); requires
 // Windows + a published sidecar to run. See docs/NEXT-STEPS.md.
-import { BaseDriver } from '@appium/base-driver';
+import { BaseDriver, errors } from '@appium/base-driver';
 import type {
   DriverCaps,
   W3CDriverCaps,
@@ -30,7 +30,7 @@ import {
   SUPPORTED_WINDOWS_COMMANDS,
   INPUT_COMMANDS,
 } from './commands/extensions.js';
-import { xpathToElementIds, type FoundElement } from './xpath/index.js';
+import { xpathToElementIds, type FoundElement, type XPathBackend } from './xpath/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const W3C_ELEMENT_KEY = 'element-6066-11e4-a52e-4f735466cecf';
@@ -170,7 +170,44 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   private readonly findViaBackend = async (op: BackendOp): Promise<FoundElement[]> => {
     const res = await this.sidecar!.client.op<BasicProps | { elements: BasicProps[] }>(op);
     const rows = 'elements' in res ? res.elements : [res];
-    return rows.map((e) => ({ runtimeId: e.runtimeId }));
+    return rows.map((e) => ({
+      runtimeId: e.runtimeId,
+      name: e.name ?? undefined,
+      automationId: e.automationId ?? undefined,
+      className: e.className ?? undefined,
+      controlType: e.controlType ?? undefined,
+    }));
+  };
+
+  /** Full backend for the XPath engine: structural finds + tree walking + attribute evaluation. */
+  private readonly xpathBackend: XPathBackend = {
+    find: async (op: BackendOp) => {
+      // nova2's includeContextElementInSearch (default true): descendant searches include the context
+      // element itself — e.g. `//Window` matches the session root window.
+      if (op.op === 'find' && op.scope === 'descendants' && (this.opts.includeContextElementInSearch ?? true)) {
+        op = { ...op, scope: 'subtree' };
+      }
+      return this.findViaBackend(op);
+    },
+    walk: async (id, direction) => {
+      const res = await this.sidecar!.client.op<{ elements: BasicProps[] }>({ op: 'walk', id, direction });
+      return res.elements.map((e) => ({
+        runtimeId: e.runtimeId,
+        name: e.name ?? undefined,
+        automationId: e.automationId ?? undefined,
+        className: e.className ?? undefined,
+        controlType: e.controlType ?? undefined,
+      }));
+    },
+    attributes: async (id, names) => {
+      const raw = await this.sidecar!.client.op<Record<string, unknown>>(attributesOp(id, names));
+      // Predicates compare page-source-style strings: booleans must read "True"/"False" (C# style).
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(raw)) {
+        out[k] = typeof v === 'boolean' ? (v ? 'True' : 'False') : v;
+      }
+      return out;
+    },
   };
 
   async findElOrEls(strategy: string, selector: string, mult: true, context?: string): Promise<W3CElement[]>;
@@ -182,7 +219,16 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     context?: string,
   ): Promise<W3CElement | W3CElement[]> {
     if (strategy === 'xpath') {
-      const ids = await xpathToElementIds(selector, mult, context, this.findViaBackend);
+      let ids: string[];
+      try {
+        ids = await xpathToElementIds(selector, mult, context, this.xpathBackend);
+      } catch (e) {
+        // Map the engine's InvalidSelectorError onto the W3C error (400 invalid selector).
+        if ((e as Error)?.name === 'InvalidSelectorError') {
+          throw new errors.InvalidSelectorError((e as Error).message);
+        }
+        throw e;
+      }
       if (mult) {
         return ids.map(toElement);
       }

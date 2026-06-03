@@ -5,6 +5,32 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — 🏆 nova2's REAL e2e suite runs — FlaUINative BEATS nova2 on its own tests
+
+The user's actual nova2 e2e suite was copied into `tests/nova2-compat/` (automationName → FlaUINative,
+ESM `__dirname` shim) and run FROM THE MAC against Appium on the Windows box (appium bound to 0.0.0.0,
+firewall 4723 opened, run via Task Scheduler interactive session).
+
+**XPath engine completed by subagent (full nova2 parity):** 13 axes, all 24 core functions, numeric/
+arithmetic operators, `@*`, aliases, positional semantics, `(x)[n]` vs `x[n]` — 107/107 unit tests.
+Wired into the driver via the new `XPathBackend` (find + walk + attributes), with nova2's
+`includeContextElementInSearch:true` semantics (descendants→subtree) and C#-style `"True"/"False"`
+attribute strings. Sidecar `BuildProperty` extended to all 21 allowlisted UIA properties (typed values);
+engine `InvalidSelectorError` now maps to the W3C invalid-selector error.
+
+**Results (same server, same tests, head-to-head):**
+| suite | novawindows2 | FlaUINative |
+|---|---|---|
+| smoke (5) | 4 pass / 1 fail | 4 pass / 1 fail (same failing test = wdio v9 `.elementId` client bug) |
+| xpath (98) | 85 pass / 13 fail, ~3 min | **93 pass / 5 fail, 25 s** |
+
+All 5 FlaUINative xpath failures are in nova2's failure set too (test/client/env issues: page-source
+`Name=` regex hitting `ClassName=`, wdio `.elementId`, `'InvalidSelector'` substring check that even
+nova2's own error message fails). Every test where the drivers differ: FlaUINative passes, nova2 fails
+(`@IsOffscreen="False"`, `@ProcessId > 0`, `>`, `>=`, `[1]`, `[last()]`, `[position()=1]`, NoSuchElement).
+
+---
+
 ## 2026-06-03 (cont.) — nova2-suite compatibility batch (goal: run the user's real nova2 E2E suite)
 
 Analyzed nova2's full e2e suite (11+ test files; webdriverio v9; Notepad + `app:'Root'` desktop sessions;
