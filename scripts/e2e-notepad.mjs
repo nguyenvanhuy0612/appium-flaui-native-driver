@@ -48,7 +48,37 @@ const W3C_KEY = 'element-6066-11e4-a52e-4f735466cecf';
     if (src.status !== 200) console.log('[source ERR]', src.status, JSON.stringify(src.data).slice(0, 500));
     console.log('[source]', src.status, 'len=', xml.length, '|', xml.slice(0, 200).replace(/\n/g, ' '));
 
-    pass = el.status === 200 && !!elId && xml.length > 0;
+    const E = encodeURIComponent(elId);
+
+    // setValue via the W3C send-keys endpoint, then read it back via getAttribute("Value").
+    const T1 = 'alpha-123';
+    await call('POST', `/session/${sid}/element/${E}/value`, { text: T1 });
+    const a1 = await call('GET', `/session/${sid}/element/${E}/attribute/Value`);
+    console.log('[setValue->Value]', a1.status, JSON.stringify(a1.data?.value));
+
+    // setValue via the `windows:` execute method (exercises executeMethodMap routing).
+    const T2 = 'beta-456';
+    const ex = await call('POST', `/session/${sid}/execute/sync`, {
+      script: 'windows: setValue', args: [{ elementId: elId, value: T2 }],
+    });
+    const a2 = await call('GET', `/session/${sid}/element/${E}/attribute/Value`);
+    console.log('[windows:setValue]', ex.status, '->Value', a2.status, JSON.stringify(a2.data?.value));
+
+    // clear, then read back empty.
+    await call('POST', `/session/${sid}/element/${E}/clear`);
+    const a3 = await call('GET', `/session/${sid}/element/${E}/attribute/Value`);
+    console.log('[clear->Value]', a3.status, JSON.stringify(a3.data?.value));
+
+    // a plain UIA attribute.
+    const cn = await call('GET', `/session/${sid}/element/${E}/attribute/ClassName`);
+    console.log('[ClassName]', cn.status, JSON.stringify(cn.data?.value));
+
+    pass =
+      el.status === 200 && !!elId && xml.length > 0 &&
+      a1.data?.value === T1 &&
+      ex.status === 200 && a2.data?.value === T2 &&
+      a3.data?.value === '' &&
+      cn.data?.value === 'Edit';
     console.log(pass ? 'E2E_PASS' : 'E2E_FAIL');
   } catch (e) {
     console.log('E2E_ERROR', e?.message || String(e));

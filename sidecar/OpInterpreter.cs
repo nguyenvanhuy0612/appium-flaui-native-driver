@@ -183,6 +183,8 @@ public sealed class OpInterpreter
         "ProcessId" => el.Properties.ProcessId.ValueOrDefault,
         "FrameworkId" => el.Properties.FrameworkId.ValueOrDefault,
         "HelpText" => el.Properties.HelpText.ValueOrDefault,
+        // ValuePattern.Value — e.g. the text of an Edit control (lets getAttribute("Value") read it back).
+        "Value" => el.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault,
         _ => throw new ArgumentException($"unknown attribute: {name}"),
     };
 }

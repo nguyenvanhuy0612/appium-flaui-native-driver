@@ -43,14 +43,17 @@ type Constraints = typeof constraints;
 /** W3C element object for a backend runtime id. */
 const toElement = (runtimeId: string): W3CElement => ({ [W3C_ELEMENT_KEY]: runtimeId });
 
-// Appium 3 execute-method manifest: one entry per `windows:<name>` element command (Phase 2).
-// Each maps to the single generic handler `windowsCommand`, which takes an elementId + params.
+const WINDOWS_METHOD_PREFIX = 'windowsCmd_';
+
+// Appium 3 execute-method manifest: one entry per `windows:<name>` element command. base-driver's
+// executeMethod calls `this[command](...positionalParams)` WITHOUT the script name, so each command needs
+// its OWN method — we generate `windowsCmd_<name>` methods on the prototype below (after the class).
 const executeMethodMap = Object.fromEntries(
   SUPPORTED_WINDOWS_COMMANDS.map((name) => [
     `windows: ${name}`,
-    { command: 'windowsCommand', params: { required: ['elementId'], optional: ['value'] } },
+    { command: `${WINDOWS_METHOD_PREFIX}${name}`, params: { required: ['elementId'], optional: ['value'] } },
   ]),
-) as ExecuteMethodMap<FlaUINativeDriver>;
+) as unknown as ExecuteMethodMap<FlaUINativeDriver>;
 
 export class FlaUINativeDriver extends BaseDriver<Constraints> {
   static newMethodMap = {} as const;
@@ -160,13 +163,30 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     await this.sidecar!.client.op(actionOp(elementId, 'setValue', { value: '' }));
   }
 
-  /** Generic handler for all `windows:<name>` element commands (wired via executeMethodMap). */
-  async windowsCommand(name: string, opts: { elementId: string; value?: unknown }): Promise<unknown> {
-    const bare = name.replace(/^windows:\s*/, '');
-    if (!isSupportedWindowsCommand(bare)) throw new Error(`unsupported windows: command: ${bare}`);
-    const args = opts.value === undefined ? {} : { value: opts.value };
-    return this.sidecar!.client.op(buildWindowsCommandOp(bare, opts.elementId, args));
+  // base-driver provides no default `execute`, so the W3C execute endpoint 405s without this. Route it
+  // through executeMethod, which dispatches via the static executeMethodMap.
+  async execute(script: string, args: unknown[]): Promise<unknown> {
+    return this.executeMethod(script, args);
   }
+
+  /** Shared implementation for every `windows:<action>` element command. */
+  async runWindowsAction(action: string, elementId: string, value?: unknown): Promise<unknown> {
+    if (!isSupportedWindowsCommand(action)) throw new Error(`unsupported windows: command: ${action}`);
+    const args = value === undefined ? {} : { value };
+    return this.sidecar!.client.op(buildWindowsCommandOp(action, elementId, args));
+  }
+}
+
+// Generate one method per `windows:` command. base-driver's executeMethod looks up `this[command]` by name
+// and calls it with positional params [elementId, value], so each command must be a distinct method.
+for (const name of SUPPORTED_WINDOWS_COMMANDS) {
+  Object.defineProperty(FlaUINativeDriver.prototype, `${WINDOWS_METHOD_PREFIX}${name}`, {
+    value: function (this: FlaUINativeDriver, elementId: string, value?: unknown) {
+      return this.runWindowsAction(name, elementId, value);
+    },
+    writable: true,
+    configurable: true,
+  });
 }
 
 export default FlaUINativeDriver;

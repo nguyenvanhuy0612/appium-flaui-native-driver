@@ -5,6 +5,28 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — Command surface verified on Windows (setValue/clear/getAttribute/execute)
+
+Extended the Notepad E2E (`scripts/e2e-notepad.mjs`) to exercise the action/attribute surface — **all green**:
+- `setValue` (W3C send-keys) → `getAttribute("Value")` reads back `alpha-123` ✅
+- `windows: setValue` via the **execute method** → reads back `beta-456` ✅ (verifies executeMethodMap routing)
+- `clear` → `Value` is `""` ✅
+- `getAttribute("ClassName")` → `Edit` ✅ (plus find + page source still ✅)
+
+**Two real bugs found & fixed via the live run:**
+1. **`windows: setValue` returned 405.** base-driver provides no default `execute`, so the W3C execute
+   endpoint 405'd. Re-added `execute(script, args)` on the driver delegating to `this.executeMethod`.
+2. **executeMethodMap routing was broken.** base-driver's `executeMethod` calls `this[command](...args)`
+   WITHOUT the script name, so mapping every `windows:*` to one generic `windowsCommand` couldn't tell them
+   apart. Fixed: generate a distinct `windowsCmd_<name>` method per command on the prototype; each calls the
+   shared `runWindowsAction(<name>, elementId, value)`. (Confirmed by reading base-driver's
+   `executeMethod`/`validateExecuteMethodParams`: params arrive positional as `[elementId, value]`.)
+
+Sidecar: `OpInterpreter.ReadAttribute` gained a `"Value"` case (reads `ValuePattern.Value`) so typed text is
+readable via `getAttribute("Value")`. README.md authored (honest implemented-vs-planned).
+
+---
+
 ## 2026-06-03 (cont.) — 🎉 FULL E2E PASS on real Windows (Notepad)
 
 The whole stack runs for real: **Appium 3.5.0 → FlaUINativeDriver → localhost HTTP RPC → C# FlaUI sidecar
