@@ -21,6 +21,7 @@ import {
   actionOp,
   sourceOp,
   inputOp,
+  fileOp,
   type BackendOp,
   type BasicProps,
 } from './backend/ops.js';
@@ -457,7 +458,9 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   // base-driver provides no default `execute`, so the W3C execute endpoint 405s without this. Route it
   // through executeMethod, which dispatches via the static executeMethodMap.
   async execute(script: string, args: unknown[]): Promise<unknown> {
-    if (script.trim().toLowerCase() === 'powershell') {
+    const name = script.trim();
+    const lower = name.toLowerCase();
+    if (lower === 'powershell') {
       // Scoped insecure feature (ADR-007 rev: optional convenience, NOT the backbone).
       (this as unknown as { assertFeatureEnabled?: (f: string) => void }).assertFeatureEnabled?.('power_shell');
       const a = ((args as unknown[])?.[0] ?? {}) as { script?: string; command?: string };
@@ -467,7 +470,42 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
       });
       return res.stdout;
     }
+    // nova2-compatible execute scripts for file transfer (also reachable via the standard appium endpoints
+    // below). Each is gated as a scoped insecure feature (ADR-008) using the same optional-call style as
+    // power_shell, so the driver still loads where assertFeatureEnabled isn't present.
+    if (name === 'pullFile') {
+      const a = ((args as unknown[])?.[0] ?? {}) as { path?: string };
+      return this.pullFile(a.path ?? '');
+    }
+    if (name === 'pushFile') {
+      const a = ((args as unknown[])?.[0] ?? {}) as { path?: string; data?: string };
+      return this.pushFile(a.path ?? '', a.data ?? '');
+    }
+    if (name === 'pullFolder') {
+      const a = ((args as unknown[])?.[0] ?? {}) as { path?: string };
+      return this.pullFolder(a.path ?? '');
+    }
     return this.executeMethod(script, args);
+  }
+
+  // ── File transfer (insecure features, ADR-008) ────────────────────────────────────────────
+  // base-driver routes the standard appium endpoints (POST .../appium/device/{pull_file,push_file,
+  // pull_folder}) to these methods. Each is gated with assertFeatureEnabled (optional-call style).
+  async pullFile(remotePath: string): Promise<string> {
+    (this as unknown as { assertFeatureEnabled?: (f: string) => void }).assertFeatureEnabled?.('pull_file');
+    const res = await this.op<{ data: string }>(fileOp('pull', remotePath));
+    return res.data;
+  }
+
+  async pushFile(remotePath: string, base64Data: string): Promise<void> {
+    (this as unknown as { assertFeatureEnabled?: (f: string) => void }).assertFeatureEnabled?.('push_file');
+    await this.op(fileOp('push', remotePath, base64Data));
+  }
+
+  async pullFolder(remotePath: string): Promise<string> {
+    (this as unknown as { assertFeatureEnabled?: (f: string) => void }).assertFeatureEnabled?.('pull_file');
+    const res = await this.op<{ data: string }>(fileOp('pullFolder', remotePath));
+    return res.data;
   }
 
   // ── W3C window commands (operate on the session root window) ──────────────────────────────

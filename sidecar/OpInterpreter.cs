@@ -279,10 +279,27 @@ public sealed class OpInterpreter
         return new { data = Convert.ToBase64String(ms.ToArray()) };
     }
 
-    /// <summary>Plaintext clipboard get/set (base64-encoded UTF-8, nova2-style). Image support: later.</summary>
+    /// <summary>Clipboard get/set (base64-encoded). contentType 'plaintext' (default, UTF-8 via TextCopy)
+    /// or 'image' (base64 PNG via Win32 clipboard P/Invoke + CF_DIB). nova2-compatible.</summary>
     public object Clipboard(JsonElement op)
     {
         var action = op.GetProperty("action").GetString();
+        var contentType = (op.TryGetProperty("contentType", out var ct) && ct.GetString() is { Length: > 0 } c
+            ? c : "plaintext").ToLowerInvariant();
+
+        if (contentType == "image")
+        {
+            if (action == "set")
+            {
+                var bytes = Convert.FromBase64String(op.GetProperty("b64").GetString()!);
+                ClipboardImage.SetPng(bytes);
+                return new { done = true };
+            }
+            var png = ClipboardImage.GetPng();
+            return new { b64 = png is null ? string.Empty : Convert.ToBase64String(png) };
+        }
+
+        // plaintext (default)
         if (action == "set")
         {
             var text = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(op.GetProperty("b64").GetString()!));
@@ -291,6 +308,52 @@ public sealed class OpInterpreter
         }
         var t = TextCopy.ClipboardService.GetText() ?? string.Empty;
         return new { b64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(t)) };
+    }
+
+    /// <summary>File transfer (insecure feature, ADR-008): pull a file (→base64), push base64 to a file
+    /// (creating parent dirs), or zip a folder to a temp file (→base64, temp deleted). Missing files/folders
+    /// raise FileNotFoundException → mapped to the W3C "unknown error" envelope with a clear message.</summary>
+    public object File(JsonElement op)
+    {
+        var action = op.GetProperty("action").GetString();
+        var path = op.GetProperty("path").GetString()!;
+        switch (action)
+        {
+            case "pull":
+            {
+                if (!System.IO.File.Exists(path))
+                    throw new FileNotFoundException($"File not found: {path}");
+                var bytes = System.IO.File.ReadAllBytes(path);
+                return new { data = Convert.ToBase64String(bytes) };
+            }
+            case "push":
+            {
+                var data = op.GetProperty("data").GetString()!;
+                var parent = System.IO.Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
+                System.IO.File.WriteAllBytes(path, Convert.FromBase64String(data));
+                return new { done = true };
+            }
+            case "pullFolder":
+            {
+                if (!Directory.Exists(path))
+                    throw new FileNotFoundException($"Folder not found: {path}");
+                var zipPath = System.IO.Path.Combine(
+                    System.IO.Path.GetTempPath(), $"appium_{Guid.NewGuid():N}.zip");
+                try
+                {
+                    System.IO.Compression.ZipFile.CreateFromDirectory(path, zipPath);
+                    var bytes = System.IO.File.ReadAllBytes(zipPath);
+                    return new { data = Convert.ToBase64String(bytes) };
+                }
+                finally
+                {
+                    try { if (System.IO.File.Exists(zipPath)) System.IO.File.Delete(zipPath); }
+                    catch { /* best effort */ }
+                }
+            }
+            default: throw new ArgumentException($"unsupported file action: {action}");
+        }
     }
 
     private System.Drawing.Point ResolvePoint(JsonElement args)

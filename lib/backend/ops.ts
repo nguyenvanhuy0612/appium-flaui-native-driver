@@ -27,6 +27,7 @@ export type BackendOp =
     }
   | { op: 'screenshot'; id?: string }
   | { op: 'clipboard'; action: 'get' | 'set'; contentType?: string; b64?: string }
+  | { op: 'file'; action: 'pull' | 'push' | 'pullFolder'; path: string; data?: string }
   | { op: 'walk'; id: string; direction: 'parent' | 'ancestors' | 'following-siblings' | 'preceding-siblings' }
   | { op: 'window'; action: 'title' | 'handle' | 'rect' | 'setRect' | 'maximize' | 'minimize'; args?: Record<string, unknown> }
   | { op: 'app'; action: 'launch' | 'close' | 'activate'; process?: string }
@@ -69,3 +70,10 @@ export const inputOp = (
   kind: Extract<BackendOp, { op: 'input' }>['kind'],
   args: Record<string, unknown>,
 ): BackendOp => ({ op: 'input', kind, args });
+
+/** File-transfer op (insecure feature, ADR-008): pull/push a file or pull a folder as a base64 ZIP. */
+export const fileOp = (
+  action: Extract<BackendOp, { op: 'file' }>['action'],
+  path: string,
+  data?: string,
+): BackendOp => (data === undefined ? { op: 'file', action, path } : { op: 'file', action, path, data });

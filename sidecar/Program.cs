@@ -93,6 +93,7 @@ app.MapPost("/op", async (HttpRequest req) =>
         "input" => interp!.Input(op),
         "screenshot" => interp!.Screenshot(op),
         "clipboard" => interp!.Clipboard(op),
+        "file" => interp!.File(op),
         "walk" => interp!.Walk(op),
         "window" => interp!.Window(op),
         "app" => HandleApp(op),

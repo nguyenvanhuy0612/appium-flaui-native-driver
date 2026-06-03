@@ -5,6 +5,22 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — pullFile/pushFile/pullFolder + image clipboard (subagent, all VERIFIED)
+
+- **File transfer** (insecure features `flauinative:pull_file`/`push_file`): new `file` op — pull→base64,
+  push→write+mkdirs, pullFolder→ZIP(base64). Exposed via the standard appium endpoints
+  (`/appium/device/pull_file` etc.) AND `execute('pullFile'|...)`. Verified roundtrip + PK-zip magic +
+  clean missing-file error on the Windows box.
+- **Image clipboard is REAL**: `sidecar/ClipboardImage.cs` — Win32 P/Invoke (CF_DIB) + System.Drawing
+  PNG↔DIB, no WinForms (works under the Web SDK), runs on the STA worker. Plaintext + image roundtrips PASS.
+- Unit tests 107 → **110**; `e2e-notepad.mjs` regression: PASS.
+- **Operational finding:** Appium 3's `--allow-insecure` CLI flag does NOT parse multiple scoped features
+  (comma/space forms break; repeated flags keep only the last). Use an Appium **config file** instead —
+  the box now runs `appium --config C:\Users\admin\appium-config.json` with
+  `"allow-insecure": ["flauinative:power_shell","flauinative:pull_file","flauinative:push_file"]`.
+
+---
+
 ## 2026-06-03 (cont.) — Head-to-head COMPLETE on core nova2 suites: parity or better on every one
 
 Two more real bugs found & fixed via the suites:
