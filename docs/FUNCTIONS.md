@@ -85,7 +85,7 @@ evaluate in TS over bulk-fetched attributes. Positional semantics (`//X[1]` vs `
 | `POST /element/:id/click` | click — **real pointer click** at center | ✅ |
 | `POST /element/:id/value` | setValue (ValuePattern) | ✅ |
 | `POST /element/:id/clear` | clear | ✅ |
-| `GET /element/:id/text` | getText (Value ?? Name) | ✅ |
+| `GET /element/:id/text` | getText — TextPattern.DocumentRange.GetText → ValuePattern.Value → Name → LegacyIAccessible.Value | ✅ |
 | `GET /element/:id/attribute/:name` · `/property/:name` | getAttribute / getProperty — **full UIA resolution** (Phase A): any direct property; **pattern dot-notation** (`Value.Value`, `Toggle.ToggleState`, `Window.CanMaximize`, `RangeValue.*`, `Scroll.*`, `Grid.*`, …); **`LegacyIAccessible.*`** + `legacy*` aliases (`Role`/`State` as `"text (0xHEX)"`); **`Is<Pattern>PatternAvailable`** flags; `ProviderDescription`, `IsDialog`, `BoundingRectangle` `{x,y,width,height}`. Matches inspect.exe. W3C values are strings; unsupported name → `null`. | ✅ |
 | `GET /element/:id/name` | getName → tag (ControlType) | ✅ |
 | `GET /element/:id/rect` | getElementRect | ✅ |
@@ -121,7 +121,7 @@ Element args accept `{elementId}` or the W3C element object.
 | | `getAttributes` | 🟡 | all UIA props as JSON |
 | | `maximize`, `minimize`, `restore`, `close` | 🟡 | WindowPattern |
 | Real input | `keys` | ✅ | text + virtualKeyCode down/up + pause (SendInput) |
-| | `click` | ✅ | element/coords, left/right, times |
+| | `click` | ✅ | element (ClickablePoint+scrollIntoView) or coords; `button` left/right/middle, `times`, `modifierKeys`, `durationMs`, `interClickDelayMs` |
 | | `hover`, `scroll` | ✅ | pointer move / wheel (deltaX/Y) |
 | | `clickAndDrag` | 🟡 | start/end element or coords |
 | Clipboard | `setClipboard`, `getClipboard` | ✅ | `plaintext` AND `image` (PNG) — both verified |
