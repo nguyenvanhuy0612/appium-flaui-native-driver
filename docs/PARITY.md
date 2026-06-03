@@ -52,12 +52,12 @@ setFocus, scrollIntoView, **setValue ✅**, maximize, minimize, restore, close (
 (FlaUI.Core.Input, ADR-005 rev.1): **keys ✅**, **click ✅**, **hover ✅**, **scroll ✅**, clickAndDrag 🟡,
 plus **getClipboard ✅ / setClipboard ✅** (plaintext base64; image content: later).
 
-**Not yet (9):**
-- *Input options:* typeDelay.
+**Implemented since (app/session):** launchApp 🟡, closeApp 🟡, setProcessForeground 🟡, typeDelay 🟡
+(advisory), cacheRequest 🟡 (accepted no-op), getPageSource(element) 🟡.
 
-- *App/window/process:* launchApp, closeApp, setProcessForeground.
-- *Session scoping:* cacheRequest, scopeSession, resetSessionRoot.
-- *Recording (scoped insecure):* startRecordingScreen, stopRecordingScreen.
+**Not yet (2):** scopeSession, resetSessionRoot.
+
+**⏸ Dropped for now (user decision 2026-06-03):** startRecordingScreen, stopRecordingScreen (ffmpeg).
 
 ## execute() special scripts (nova2)
 

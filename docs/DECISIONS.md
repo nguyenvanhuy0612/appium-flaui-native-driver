@@ -143,6 +143,16 @@ stated benefit (YAGNI). nova2 already covers the Appium-2 era.
 
 **Consequences:** Users must be on Appium 3. Documented as a hard requirement.
 
+---
+
+## ADR-012 — Screen recording dropped from scope (for now)
+**Decision (user, 2026-06-03):** `windows: startRecordingScreen` / `stopRecordingScreen` are removed from
+the roadmap ("recording tạm thời sẽ bỏ đi"). They would require shipping/locating ffmpeg.
+
+**Consequences:** documented as ⏸ in PARITY/FUNCTIONS; revisit only on explicit request.
+
+---
+
 **Resolved 2026-06-03 (on the test machine, Appium 3.5.0):** the running Appium bundles
 `@appium/base-driver@10.6.0` and `@appium/types@1.5.0`. Pin the driver to these exact versions so the
 driver and the server share one base-driver copy. Node 24.16 / npm 11.13 confirmed on the Windows target.
