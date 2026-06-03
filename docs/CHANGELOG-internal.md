@@ -5,6 +5,18 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — W3C suite 69/69 GREEN + Win32 robust window foregrounding
+
+Closed the 5 input/focus failures with a real capability (not a test hack): a new `window action:
+"foreground"` in the sidecar using **Win32 `SetForegroundWindow` + `AttachThreadInput`** (beats the
+foreground-lock) on the SESSION's own HWND (`sidecar/Win32.cs`), exposed as `windows: setWindowForeground`
+and `driver.windowsCmd_setWindowForeground()`. The test helper `bringToFront` now uses it (HWND-based,
+unambiguous) instead of process-name activation. **Full W3C e2e suite: 69 passing / 0 failing** on the
+Windows box; smoke 1/1; 110 unit tests. (Also: clean-publish must kill any running FlaUiSidecar.exe first —
+single-file publish locks on the output exe → MSB4018.)
+
+---
+
 ## 2026-06-03 (cont.) — own W3C-first conformance suite (smoke + e2e) + title() routing fix
 
 Built the driver's OWN test suite (subagent; cut off by a session limit mid-run, work preserved & verified

@@ -193,6 +193,10 @@ public sealed class OpInterpreter
             case "minimize":
                 root.Patterns.Window.Pattern.SetWindowVisualState(WindowVisualState.Minimized);
                 return RectOf(root);
+            case "foreground":
+                Win32.ForceForeground(root.Properties.NativeWindowHandle.ValueOrDefault);
+                try { root.Focus(); } catch { /* best effort */ }
+                return new { done = true };
             default: throw new ArgumentException($"unsupported window action: {action}");
         }
     }

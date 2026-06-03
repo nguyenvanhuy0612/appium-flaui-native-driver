@@ -93,6 +93,7 @@ const executeMethodMap = Object.fromEntries([
   ['windows: typeDelay', { command: `${WINDOWS_METHOD_PREFIX}typeDelay`, params: { required: ['delay'], optional: [] } }],
   ['windows: cacheRequest', { command: `${WINDOWS_METHOD_PREFIX}cacheRequest`, params: { required: [], optional: ['treeScope', 'treeFilter', 'conditions', 'automationElementMode'] } }],
   ['windows: getPageSource', { command: `${WINDOWS_METHOD_PREFIX}getPageSource`, params: { required: [], optional: ['elementId'] } }],
+  ['windows: setWindowForeground', { command: `${WINDOWS_METHOD_PREFIX}setWindowForeground`, params: { required: [], optional: [] } }],
 ]) as unknown as ExecuteMethodMap<FlaUINativeDriver>;
 
 // W3C key codepoints (subset) → Windows virtual-key codes for performActions key sequences.
@@ -546,6 +547,12 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
 
   async minimizeWindow() {
     return this.op({ op: 'window', action: 'minimize' });
+  }
+
+  /** Bring the session window to the foreground (Win32 SetForegroundWindow + focus). Useful before real
+   * keyboard/mouse input when another window holds the foreground. */
+  async windowsCmd_setWindowForeground(): Promise<unknown> {
+    return this.op({ op: 'window', action: 'foreground' });
   }
 
   // ── windows: app/session-level commands (nova2-compat) ────────────────────────────────────

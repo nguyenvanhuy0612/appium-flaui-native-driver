@@ -145,9 +145,11 @@ export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
  * On a shared interactive desktop other windows can overlap; this makes focus-sensitive tests robust
  * without hard-coding any window geometry. Best-effort: ignores errors from setProcessForeground.
  */
-export async function bringToFront(sessionId: string, processName = 'notepad'): Promise<void> {
-  try { await w3c.execute(sessionId, 'windows: setProcessForeground', [{ process: processName }]); } catch { /* ignore */ }
-  await sleep(150);
+export async function bringToFront(sessionId: string, _processName = 'notepad'): Promise<void> {
+  // Foreground the SESSION's own window by HWND (Win32 SetForegroundWindow + AttachThreadInput) — reliable
+  // with multiple windows / foreground-lock, unlike process-name activation.
+  try { await w3c.execute(sessionId, 'windows: setWindowForeground', []); } catch { /* ignore */ }
+  await sleep(200);
 }
 
 /** A small valid 2x2 red PNG, base64 — for image clipboard roundtrips. */

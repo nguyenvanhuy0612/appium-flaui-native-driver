@@ -105,6 +105,7 @@ Element args accept `{elementId}` or the W3C element object.
 | App/session | `launchApp`, `closeApp` | 🟡 | relaunch (re-roots session) / close |
 | | `setProcessForeground` | 🟡 | by process name |
 | | `getPageSource` | 🟡 | element-scoped source |
+| | `setWindowForeground` | ✅ | Win32 SetForegroundWindow+AttachThreadInput on the session window |
 | | `typeDelay`, `cacheRequest` | 🟡 | accepted (advisory no-ops) |
 
 ## 6. Script pass-throughs (`execute('<script>', [args])`)
@@ -138,4 +139,4 @@ Verified by unit tests; the frozen-app E2E + 30-min stress remain planned.
 | rawView page source · active element · getDeviceTime | ⬜ |
 | win-arm64 prebuilt | ⬜ (publish script ready) |
 | typeDelay/smoothPointerMove/delay* effects | ⬜ |
-| W3C-first own test suite (unit ✅ 110 / smoke / e2e) | 🔄 being built |
+| W3C-first own test suite | ✅ unit 110, smoke 1/1, **e2e 69/69** on the Windows box |
