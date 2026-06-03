@@ -1,0 +1,8 @@
+node_modules/
+build/
+sidecar/bin/
+sidecar/obj/
+sidecar/tests/bin/
+sidecar/tests/obj/
+prebuilt/
+*.log

@@ -1,0 +1,15 @@
+{
+  "//": "Self-contained for now. When @appium deps are installed, switch to: \"extends\": \"@appium/tsconfig/tsconfig.json\".",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "build",
+    "rootDir": ".",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["lib/**/*.ts"]
+}
