@@ -48,7 +48,10 @@ app.MapPost("/op", async (HttpRequest req) =>
     return await RunOp(() => op.GetProperty("op").GetString() switch
     {
         "find" => interp!.Find(op),
-        var o => throw new NotSupportedException($"op not implemented in skeleton: {o}"),
+        "attributes" => interp!.Attributes(op),
+        "action" => interp!.Action(op),
+        "source" => interp!.Source(op),
+        var o => throw new NotSupportedException($"op not implemented: {o}"),
     });
 });
 

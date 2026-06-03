@@ -5,7 +5,8 @@ import { BaseDriver } from '@appium/base-driver';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Sidecar } from './backend/sidecar';
-import { findOp, propertyCondition, type BasicProps } from './backend/ops';
+import { findOp, propertyCondition, attributesOp, actionOp, sourceOp, type BasicProps } from './backend/ops';
+import { buildWindowsCommandOp, isSupportedWindowsCommand, SUPPORTED_WINDOWS_COMMANDS } from './commands/extensions';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const W3C_ELEMENT_KEY = 'element-6066-11e4-a52e-4f735466cecf';
@@ -16,8 +17,18 @@ const constraints = {
   'flaui:backend': { isString: true, inclusion: ['uia3', 'uia2'] },
 } as const;
 
+// Appium 3 execute-method manifest: one entry per `windows:<name>` element command (Phase 2).
+// Each maps to the single generic handler `windowsCommand`, which takes an elementId + params.
+const executeMethodMap = Object.fromEntries(
+  SUPPORTED_WINDOWS_COMMANDS.map((name) => [
+    `windows: ${name}`,
+    { command: 'windowsCommand', params: { required: ['elementId'], optional: ['value'] } },
+  ]),
+) as Record<string, { command: 'windowsCommand'; params: { required: string[]; optional: string[] } }>;
+
 export class FlaUINativeDriver extends BaseDriver<typeof constraints> {
   static newMethodMap = {} as const;
+  static executeMethodMap = executeMethodMap;
   desiredCapConstraints = constraints;
   locatorStrategies = ['accessibility id', 'name', 'class name', 'xpath'];
   private sidecar?: Sidecar;
@@ -66,6 +77,44 @@ export class FlaUINativeDriver extends BaseDriver<typeof constraints> {
       return (res as { elements: BasicProps[] }).elements.map((e) => ({ [W3C_ELEMENT_KEY]: e.runtimeId }));
     }
     return { [W3C_ELEMENT_KEY]: (res as BasicProps).runtimeId };
+  }
+
+  // ── Phase 2 command surface ──────────────────────────────────────────────────────────────
+  async getPageSource(): Promise<string> {
+    const res = await this.sidecar!.client.op<{ source: string }>(sourceOp('root'));
+    return res.source;
+  }
+
+  async getAttribute(name: string, elementId: string): Promise<string | null> {
+    const res = await this.sidecar!.client.op<Record<string, unknown>>(attributesOp(elementId, [name]));
+    const v = res[name];
+    return v == null ? null : String(v);
+  }
+
+  async click(elementId: string): Promise<void> {
+    // Default element "click" maps to UIA Invoke; W3C Actions-based pointer click arrives in Phase 5.
+    await this.sidecar!.client.op(actionOp(elementId, 'invoke'));
+  }
+
+  async setValue(text: string | string[], elementId: string): Promise<void> {
+    const value = Array.isArray(text) ? text.join('') : text;
+    await this.sidecar!.client.op(actionOp(elementId, 'setValue', { value }));
+  }
+
+  async clear(elementId: string): Promise<void> {
+    await this.sidecar!.client.op(actionOp(elementId, 'setValue', { value: '' }));
+  }
+
+  /** Generic handler for all `windows:<name>` element commands (wired via executeMethodMap). */
+  async windowsCommand(name: string, opts: { elementId: string; value?: unknown }): Promise<unknown> {
+    const bare = name.replace(/^windows:\s*/, '');
+    if (!isSupportedWindowsCommand(bare)) throw new Error(`unsupported windows: command: ${bare}`);
+    const args = opts.value === undefined ? {} : { value: opts.value };
+    return this.sidecar!.client.op(buildWindowsCommandOp(bare, opts.elementId, args));
+  }
+
+  async execute(script: string, args: unknown): Promise<unknown> {
+    return this.executeMethod(script, args as [Record<string, unknown>]);
   }
 }
 

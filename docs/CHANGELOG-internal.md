@@ -5,6 +5,29 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — Phase 2 command surface (TS verified, C# authored)
+
+**VERIFIED ON macOS (15/15 mocha green):**
+- `lib/backend/ops.ts` — added `attributesOp`, `actionOp`, `sourceOp` builders (+ tests).
+- `lib/commands/extensions.ts` — pure `windows:` command → action-op mapping
+  (`buildWindowsCommandOp`, `isSupportedWindowsCommand`, `SUPPORTED_WINDOWS_COMMANDS`) (+ tests).
+- These pure modules carry the Phase 2 logic and are OS-independent, so they test on Mac.
+
+**AUTHORED, WINDOWS-VERIFICATION-PENDING:**
+- `sidecar/OpInterpreter.cs` — `Attributes` (bulk), `Action` (invoke/toggle/expand/collapse/select/
+  setFocus/scrollIntoView/setValue/window-state), `Source`; `Program.cs` `/op` routes them.
+- `sidecar/PageSourceBuilder.cs` — CacheRequest-based XML builder.
+- `lib/driver.ts` — `getPageSource`, `getAttribute`, `click` (→Invoke), `setValue`, `clear`,
+  `windowsCommand` generic handler, and Appium-3 `executeMethodMap` for every `windows:` command.
+
+**New open items for the Windows pass:**
+- `PageSourceBuilder.Build` currently writes a FLAT BFS list — replace with stack-based DFS for faithful
+  nesting, then diff XML against nova2 for schema parity (this is required before XPath/Phase 3).
+- Confirm FlaUI 4.x pattern accessor symbols used in `OpInterpreter.Action`.
+- Confirm `TrueCondition`/`TreeFilterCondition` usage in `PageSourceBuilder`.
+
+---
+
 ## 2026-06-03 — Project bootstrap: design → decisions → plan → verified foundation
 
 **Context.** Goal: a new Appium 3 Windows driver backed by a compiled C# FlaUI sidecar, living alongside

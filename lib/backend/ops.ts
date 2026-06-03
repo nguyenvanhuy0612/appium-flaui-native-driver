@@ -45,3 +45,12 @@ export type BackendResult<T = unknown> =
 
 export const findOp = (p: Omit<Extract<BackendOp, { op: 'find' }>, 'op'>): BackendOp =>
   ({ op: 'find', ...p });
+
+export const attributesOp = (id: string, names: string[] | 'all'): BackendOp =>
+  ({ op: 'attributes', id, names });
+
+export const actionOp = (id: string, action: string, args?: Record<string, unknown>): BackendOp =>
+  ({ op: 'action', id, action, args });
+
+export const sourceOp = (startId: string, rawView?: boolean): BackendOp =>
+  ({ op: 'source', startId, rawView });

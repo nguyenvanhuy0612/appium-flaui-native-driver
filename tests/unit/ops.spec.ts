@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { propertyCondition, andCondition, findOp } from '../../lib/backend/ops';
+import { propertyCondition, andCondition, findOp, attributesOp, actionOp, sourceOp } from '../../lib/backend/ops';
 
 describe('backend ops', () => {
   it('builds a property condition', () => {
@@ -30,5 +30,27 @@ describe('backend ops', () => {
       scope: 'descendants',
       condition: { kind: 'property', prop: 'Name', value: 'OK' },
     });
+  });
+
+  it('builds an attributes op (bulk)', () => {
+    expect(attributesOp('42.1', ['Name', 'AutomationId'])).to.deep.equal({
+      op: 'attributes',
+      id: '42.1',
+      names: ['Name', 'AutomationId'],
+    });
+    expect(attributesOp('42.1', 'all')).to.deep.equal({ op: 'attributes', id: '42.1', names: 'all' });
+  });
+
+  it('builds an action op', () => {
+    expect(actionOp('42.1', 'setValue', { value: 'x' })).to.deep.equal({
+      op: 'action',
+      id: '42.1',
+      action: 'setValue',
+      args: { value: 'x' },
+    });
+  });
+
+  it('builds a source op', () => {
+    expect(sourceOp('root', true)).to.deep.equal({ op: 'source', startId: 'root', rawView: true });
   });
 });
