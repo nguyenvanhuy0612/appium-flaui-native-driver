@@ -10,6 +10,7 @@ Map of the project's docs, what each is for, and which is authoritative when two
 | Use the driver (install, caps, commands) | [`../README.md`](../README.md) → [`FUNCTIONS.md`](./FUNCTIONS.md) |
 | Know exactly what's supported and its verification status | **[`FUNCTIONS.md`](./FUNCTIONS.md)** — canonical API/status |
 | Understand the architecture & the stability design | [`superpowers/specs/2026-06-03-appium-flaui-native-driver-design.md`](./superpowers/specs/2026-06-03-appium-flaui-native-driver-design.md) |
+| Understand the **FlaUI backend** (what the engine can do) | [`BACKEND-FLAUI.md`](./BACKEND-FLAUI.md) |
 | Know *why* a choice was made | [`DECISIONS.md`](./DECISIONS.md) (ADRs) |
 | See what changed and what's verified vs authored | [`CHANGELOG-internal.md`](./CHANGELOG-internal.md) |
 | See what's next | [`NEXT-STEPS.md`](./NEXT-STEPS.md) |
