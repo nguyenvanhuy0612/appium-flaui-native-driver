@@ -67,15 +67,38 @@ public sealed class OpInterpreter
         return dict;
     }
 
-    /// <summary>Element action via a UIA pattern (Phase 2).
-    /// TODO (Windows pass): confirm each FlaUI pattern accessor symbol against FlaUI 4.x.</summary>
-    public object Action(JsonElement op)
+    /// <summary>Element action via a UIA pattern. Write-style actions return {done:true}; read-style
+    /// actions (getValue/isMultiple/selection/getAttributes) return their data.</summary>
+    public object? Action(JsonElement op)
     {
         var el = ResolveOrThrow(op.GetProperty("id").GetString()!);
         var action = op.GetProperty("action").GetString();
         var args = op.TryGetProperty("args", out var a) ? a : default;
         switch (action)
         {
+            // ── read-style ──
+            case "getValue":
+                return new { value = el.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault };
+            case "isMultiple":
+                return new { value = el.Patterns.Selection.PatternOrDefault?.CanSelectMultiple.ValueOrDefault };
+            case "selectedItem":
+            {
+                var sel = el.Patterns.Selection.PatternOrDefault?.Selection.ValueOrDefault;
+                return sel is { Length: > 0 } ? Basic(sel[0]) : null;
+            }
+            case "allSelectedItems":
+            {
+                var sel = el.Patterns.Selection.PatternOrDefault?.Selection.ValueOrDefault
+                          ?? Array.Empty<AutomationElement>();
+                return new { elements = sel.Select(Basic).ToArray() };
+            }
+            case "getAttributes":
+            {
+                var dict = new Dictionary<string, object?>();
+                foreach (var n in AllAttributeNames) dict[n] = ReadAttribute(el, n);
+                return dict;
+            }
+            // ── write-style ──
             case "invoke": el.Patterns.Invoke.Pattern.Invoke(); break;
             case "toggle": el.Patterns.Toggle.Pattern.Toggle(); break;
             case "expand": el.Patterns.ExpandCollapse.Pattern.Expand(); break;
@@ -185,8 +208,18 @@ public sealed class OpInterpreter
         "HelpText" => el.Properties.HelpText.ValueOrDefault,
         // ValuePattern.Value — e.g. the text of an Edit control (lets getAttribute("Value") read it back).
         "Value" => el.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault,
+        // SelectionItemPattern.IsSelected — null when the pattern is unsupported (treated as false upstream).
+        "IsSelected" => el.Patterns.SelectionItem.PatternOrDefault?.IsSelected.ValueOrDefault,
+        // BoundingRectangle as a plain {x,y,width,height} object (used by W3C getElementRect).
+        "BoundingRectangle" => RectOf(el),
         _ => throw new ArgumentException($"unknown attribute: {name}"),
     };
+
+    private static object RectOf(AutomationElement el)
+    {
+        var r = el.Properties.BoundingRectangle.ValueOrDefault;
+        return new { x = (int)r.X, y = (int)r.Y, width = (int)r.Width, height = (int)r.Height };
+    }
 }
 
 public sealed class StaleElementException(string id) : Exception($"stale element: {id}");

@@ -59,7 +59,7 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   static newMethodMap = {} as const;
   static executeMethodMap = executeMethodMap;
   desiredCapConstraints = constraints;
-  locatorStrategies = ['accessibility id', 'name', 'class name', 'xpath'];
+  locatorStrategies = ['accessibility id', 'id', 'name', 'class name', 'tag name', 'xpath'];
   private sidecar?: Sidecar;
 
   async createSession(
@@ -116,8 +116,10 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
 
     const propMap: Record<string, string> = {
       'accessibility id': 'AutomationId',
+      id: 'AutomationId', // nova2-compatible alias
       name: 'Name',
       'class name': 'ClassName',
+      'tag name': 'ControlType', // e.g. "Button", "Document"
     };
     const prop = propMap[strategy];
     if (!prop) throw new Error(`unsupported strategy: ${strategy}`);
@@ -161,6 +163,44 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
 
   async clear(elementId: string): Promise<void> {
     await this.sidecar!.client.op(actionOp(elementId, 'setValue', { value: '' }));
+  }
+
+  async getText(elementId: string): Promise<string> {
+    // Prefer ValuePattern text (e.g. Edit/Document content); fall back to the Name property.
+    const res = await this.sidecar!.client.op<Record<string, unknown>>(attributesOp(elementId, ['Value', 'Name']));
+    const v = res.Value ?? res.Name;
+    return v == null ? '' : String(v);
+  }
+
+  async getName(elementId: string): Promise<string> {
+    return (await this.getAttribute('Name', elementId)) ?? '';
+  }
+
+  async getProperty(name: string, elementId: string): Promise<string | null> {
+    return this.getAttribute(name, elementId);
+  }
+
+  async getElementRect(elementId: string): Promise<{ x: number; y: number; width: number; height: number }> {
+    const res = await this.sidecar!.client.op<{
+      BoundingRectangle: { x: number; y: number; width: number; height: number } | null;
+    }>(attributesOp(elementId, ['BoundingRectangle']));
+    return res.BoundingRectangle ?? { x: 0, y: 0, width: 0, height: 0 };
+  }
+
+  async elementEnabled(elementId: string): Promise<boolean> {
+    const res = await this.sidecar!.client.op<Record<string, unknown>>(attributesOp(elementId, ['IsEnabled']));
+    return res.IsEnabled === true;
+  }
+
+  async elementDisplayed(elementId: string): Promise<boolean> {
+    const res = await this.sidecar!.client.op<Record<string, unknown>>(attributesOp(elementId, ['IsOffscreen']));
+    return res.IsOffscreen !== true;
+  }
+
+  async elementSelected(elementId: string): Promise<boolean> {
+    // SelectionItemPattern.IsSelected; null (pattern unsupported) reads as false.
+    const res = await this.sidecar!.client.op<Record<string, unknown>>(attributesOp(elementId, ['IsSelected']));
+    return res.IsSelected === true;
   }
 
   // base-driver provides no default `execute`, so the W3C execute endpoint 405s without this. Route it

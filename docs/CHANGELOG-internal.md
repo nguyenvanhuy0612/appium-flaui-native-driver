@@ -5,6 +5,23 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — Parity batch 1: W3C reads + locators + windows: reads (E2E PASS)
+
+Built `docs/PARITY.md` (full nova2 → FlaUINative matrix) per the user's request, then closed the first gap
+batch. **All E2E green on Windows** (Notepad):
+- New W3C commands: `getText` ✅ ("gamma-789" read back), `getElementRect` ✅ ({x,y,width,height} real
+  coords), `elementEnabled`/`elementDisplayed`/`elementSelected` ✅ (true/true/false), plus `getName`/
+  `getProperty` (implemented, same paths).
+- Locator strategies: `tag name` ✅ (ControlType — found Notepad's Document), `id` (AutomationId alias, 🟡).
+- `windows:` read commands: `getValue` ✅ (echoes typed text), `isMultiple`/`selectedItem`/
+  `allSelectedItems`/`getAttributes` implemented 🟡.
+- Sidecar: `Action` now supports read-style actions returning data; `ReadAttribute` gained `IsSelected`
+  (SelectionItem) and `BoundingRectangle` (rect object).
+
+Next per PARITY: attach-to-window caps (`appTopLevelWindow` etc.) + page-source schema parity, then input.
+
+---
+
 ## 2026-06-03 (cont.) — Command surface verified on Windows (setValue/clear/getAttribute/execute)
 
 Extended the Notepad E2E (`scripts/e2e-notepad.mjs`) to exercise the action/attribute surface — **all green**:

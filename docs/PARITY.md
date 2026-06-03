@@ -18,13 +18,13 @@ _Last updated 2026-06-03._
 | clear | ✅ | setValue "" |
 | click | 🟡 | maps to UIA Invoke (real pointer click = Phase 5) |
 | execute | ✅ | routes `windows:` via executeMethodMap |
-| getText | ⬜ | → ValuePattern.Value ?? Name (next batch) |
-| getName | ⬜ | → Name (next batch) |
-| getElementRect | ⬜ | → BoundingRectangle (next batch) |
-| elementEnabled | ⬜ | → IsEnabled (next batch) |
-| elementDisplayed | ⬜ | → !IsOffscreen (next batch) |
-| elementSelected | ⬜ | → SelectionItem.IsSelected (next batch) |
-| getProperty | ⬜ | alias of getAttribute |
+| getText | ✅ | ValuePattern.Value ?? Name |
+| getName | 🟡 | → Name |
+| getElementRect | ✅ | BoundingRectangle |
+| elementEnabled | ✅ | IsEnabled |
+| elementDisplayed | ✅ | !IsOffscreen |
+| elementSelected | ✅ | SelectionItem.IsSelected (false when pattern unsupported) |
+| getProperty | 🟡 | alias of getAttribute |
 | getScreenshot | ⬜ | UIA/GDI capture (later) |
 | getElementScreenshot | ⬜ | later |
 | getWindowRect | ⬜ | later |
@@ -40,17 +40,17 @@ _Last updated 2026-06-03._
 | name | 🟡 (implemented) |
 | class name | ✅ |
 | xpath | ✅ (subset; reverse axes & predicate fns pending) |
-| id | ⬜ (alias of AutomationId — next batch) |
-| tag name | ⬜ (→ ControlType — next batch) |
+| id | 🟡 (alias of AutomationId; same backend path as accessibility id) |
+| tag name | ✅ (→ ControlType) |
 | -windows uiautomation | ⬜ (raw JSON condition, ADR-006 — later) |
 
 ## `windows:` execute commands (nova2 has 35)
 
-**Implemented (14, 🟡 except setValue ✅):** invoke, expand, collapse, toggle, select, addToSelection,
-removeFromSelection, setFocus, scrollIntoView, **setValue ✅**, maximize, minimize, restore, close.
+**Implemented (19):** invoke, expand, collapse, toggle, select, addToSelection, removeFromSelection,
+setFocus, scrollIntoView, **setValue ✅**, maximize, minimize, restore, close (🟡), plus reads:
+**getValue ✅**, isMultiple 🟡, selectedItem 🟡, allSelectedItems 🟡, getAttributes 🟡.
 
-**Not yet (21):**
-- *Reads (easy, next batch):* getValue, isMultiple, selectedItem, allSelectedItems, getAttributes.
+**Not yet (16):**
 - *Input (Phase 5, needs Win32/koffi or sidecar input):* keys, click, hover, scroll, clickAndDrag, typeDelay.
 - *Clipboard:* getClipboard, setClipboard.
 - *App/window/process:* launchApp, closeApp, setProcessForeground.
@@ -82,11 +82,13 @@ removeFromSelection, setFocus, scrollIntoView, **setValue ✅**, maximize, minim
 
 ## Summary
 
-Core session + find + page source + read/setValue/clear are **verified on real Windows**. The biggest gaps
-are: (a) the common W3C read commands (getText/getElementRect/element{Enabled,Displayed,Selected}); (b) the
-`id`/`tag name` locator strategies; (c) the read-style `windows:` commands (getValue/isMultiple/selection);
-(d) input (keys/click/hover/scroll — Phase 5); (e) clipboard/app-lifecycle/recording. PowerShell-only
-features are intentionally not ported.
+Core session + find (incl. tag name) + page source + the read/write element surface (setValue/clear/
+getAttribute/getText/rect/enabled/displayed/selected) + execute (`windows:` setValue/getValue) are
+**verified on real Windows**. Remaining gaps: (a) input (keys/click/hover/scroll/clickAndDrag — Phase 5);
+(b) clipboard, app-lifecycle (launchApp/closeApp/setProcessForeground), session scoping (cacheRequest/
+scopeSession/resetSessionRoot); (c) screenshots + recording; (d) attach-to-window capabilities
+(`appTopLevelWindow`, `appArguments`, `shouldCloseApp`, ...); (e) page-source schema parity + rawView;
+(f) `-windows uiautomation` raw-condition strategy. PowerShell-only features are intentionally not ported.
 
-**Next batch (decided):** close (a)+(b)+(c) — all map directly to UIA properties/patterns, are high-value,
-and are verifiable on Notepad without the Win32 input layer.
+**Next (decided):** (d) attach/app-lifecycle capabilities + (e) page-source schema parity — they unblock
+real-world usage (attaching to running apps) and drop-in nova2 compatibility, before the bigger input layer.

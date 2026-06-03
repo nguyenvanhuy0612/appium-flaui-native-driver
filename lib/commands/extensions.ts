@@ -8,6 +8,13 @@ import { actionOp, type BackendOp } from '../backend/ops.js';
  * UIA pattern (Invoke/ExpandCollapse/Toggle/Selection/Window/etc.) handled by the C# OpInterpreter.
  */
 const ACTION_COMMANDS: Readonly<Record<string, string>> = Object.freeze({
+  // read-style (return data)
+  getValue: 'getValue',
+  isMultiple: 'isMultiple',
+  selectedItem: 'selectedItem',
+  allSelectedItems: 'allSelectedItems',
+  getAttributes: 'getAttributes',
+  // write-style
   invoke: 'invoke',
   expand: 'expand',
   collapse: 'collapse',
