@@ -14,5 +14,7 @@
   <ItemGroup>
     <!-- Compile the platform-agnostic scheduler directly (no FlaUI dependency). -->
     <Compile Include="../UiaScheduler.cs" />
+    <!-- FlaUI-free property-resolver logic (name classification / formatting). -->
+    <Compile Include="../PropertyResolverLogic.cs" />
   </ItemGroup>
 </Project>

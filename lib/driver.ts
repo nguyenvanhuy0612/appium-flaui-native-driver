@@ -396,7 +396,10 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   async getAttribute(name: string, elementId: string): Promise<string | null> {
     const res = await this.op<Record<string, unknown>>(attributesOp(elementId, [name]));
     const v = res[name];
-    return v == null ? null : String(v);
+    if (v == null) return null;
+    // W3C getAttribute returns a string. Scalars stringify natively; structured values (e.g.
+    // BoundingRectangle's {x,y,width,height}) are JSON-serialised rather than coerced to "[object Object]".
+    return typeof v === 'object' ? JSON.stringify(v) : String(v);
   }
 
   async click(elementId: string): Promise<void> {

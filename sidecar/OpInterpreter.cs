@@ -63,15 +63,12 @@ public sealed class OpInterpreter
     {
         var el = ResolveOrThrow(op.GetProperty("id").GetString()!);
         var namesEl = op.GetProperty("names");
-        var dict = new Dictionary<string, object?>();
         if (namesEl.ValueKind == JsonValueKind.String && namesEl.GetString() == "all")
-        {
-            foreach (var n in AllAttributeNames) dict[n] = ReadAttribute(el, n);
-        }
-        else
-        {
-            foreach (var n in namesEl.EnumerateArray()) dict[n.GetString()!] = ReadAttribute(el, n.GetString()!);
-        }
+            return PropertyResolver.All(el, _automation);
+
+        var dict = new Dictionary<string, object?>();
+        foreach (var n in namesEl.EnumerateArray())
+            dict[n.GetString()!] = PropertyResolver.Resolve(el, _automation, n.GetString()!);
         return dict;
     }
 
@@ -101,11 +98,7 @@ public sealed class OpInterpreter
                 return new { elements = sel.Select(Basic).ToArray() };
             }
             case "getAttributes":
-            {
-                var dict = new Dictionary<string, object?>();
-                foreach (var n in AllAttributeNames) dict[n] = ReadAttribute(el, n);
-                return dict;
-            }
+                return PropertyResolver.All(el, _automation);
             // ── write-style ──
             case "invoke": el.Patterns.Invoke.Pattern.Invoke(); break;
             case "toggle": el.Patterns.Toggle.Pattern.Toggle(); break;
@@ -116,7 +109,7 @@ public sealed class OpInterpreter
             case "removeFromSelection": el.Patterns.SelectionItem.Pattern.RemoveFromSelection(); break;
             case "scrollIntoView": el.Patterns.ScrollItem.Pattern.ScrollIntoView(); break;
             case "setFocus": el.Focus(); break;
-            case "setValue": el.Patterns.Value.Pattern.SetValue(args.GetProperty("value").GetString()); break;
+            case "setValue": SetValue(el, args.GetProperty("value").GetString() ?? string.Empty); break;
             case "maximize": el.Patterns.Window.Pattern.SetWindowVisualState(WindowVisualState.Maximized); break;
             case "minimize": el.Patterns.Window.Pattern.SetWindowVisualState(WindowVisualState.Minimized); break;
             case "restore": el.Patterns.Window.Pattern.SetWindowVisualState(WindowVisualState.Normal); break;
@@ -579,50 +572,25 @@ public sealed class OpInterpreter
         _ => TreeScope.Descendants,
     };
 
-    internal static readonly string[] AllAttributeNames =
+    /// <summary>Set an element's value. Prefers ValuePattern.SetValue (atomic, no focus-stealing); falls
+    /// back to focus + Keyboard.Type for controls without ValuePattern (e.g. some RichEdit/Document editors).
+    /// Clearing (empty string) on the keyboard path selects-all then deletes.</summary>
+    private static void SetValue(AutomationElement el, string value)
     {
-        "Name", "AutomationId", "ClassName", "ControlType", "LocalizedControlType",
-        "RuntimeId", "IsEnabled", "IsOffscreen", "ProcessId", "FrameworkId", "HelpText",
-        "AcceleratorKey", "AccessKey", "HasKeyboardFocus", "IsContentElement", "IsControlElement",
-        "IsKeyboardFocusable", "IsPassword", "IsRequiredForForm", "ItemStatus", "ItemType", "Orientation",
-    };
-
-    /// <summary>Read a single attribute by its schema name. TODO (Windows pass): extend to pattern-specific
-    /// attributes (e.g. Window.CanMaximize) and confirm property accessors.</summary>
-    internal static object? ReadAttribute(AutomationElement el, string name) => name switch
-    {
-        "Name" => el.Properties.Name.ValueOrDefault,
-        "AutomationId" => el.Properties.AutomationId.ValueOrDefault,
-        "ClassName" => el.Properties.ClassName.ValueOrDefault,
-        "ControlType" => el.Properties.ControlType.ValueOrDefault.ToString(),
-        "LocalizedControlType" => el.Properties.LocalizedControlType.ValueOrDefault,
-        "RuntimeId" => string.Join('.', el.Properties.RuntimeId.ValueOrDefault ?? Array.Empty<int>()),
-        "IsEnabled" => el.Properties.IsEnabled.ValueOrDefault,
-        "IsOffscreen" => el.Properties.IsOffscreen.ValueOrDefault,
-        "ProcessId" => el.Properties.ProcessId.ValueOrDefault,
-        "FrameworkId" => el.Properties.FrameworkId.ValueOrDefault,
-        "HelpText" => el.Properties.HelpText.ValueOrDefault,
-        // ValuePattern.Value — e.g. the text of an Edit control (lets getAttribute("Value") read it back).
-        "Value" => el.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault,
-        // SelectionItemPattern.IsSelected — null when the pattern is unsupported (treated as false upstream).
-        "IsSelected" => el.Patterns.SelectionItem.PatternOrDefault?.IsSelected.ValueOrDefault,
-        // BoundingRectangle as a plain {x,y,width,height} object (used by W3C getElementRect).
-        "BoundingRectangle" => RectOf(el),
-        // HWND as hex (used by the attach flow: read it, then re-attach via appTopLevelWindow).
-        "NativeWindowHandle" => "0x" + el.Properties.NativeWindowHandle.ValueOrDefault.ToInt64().ToString("X"),
-        "HasKeyboardFocus" => el.Properties.HasKeyboardFocus.ValueOrDefault,
-        "AcceleratorKey" => el.Properties.AcceleratorKey.ValueOrDefault,
-        "AccessKey" => el.Properties.AccessKey.ValueOrDefault,
-        "IsContentElement" => el.Properties.IsContentElement.ValueOrDefault,
-        "IsControlElement" => el.Properties.IsControlElement.ValueOrDefault,
-        "IsKeyboardFocusable" => el.Properties.IsKeyboardFocusable.ValueOrDefault,
-        "IsPassword" => el.Properties.IsPassword.ValueOrDefault,
-        "IsRequiredForForm" => el.Properties.IsRequiredForForm.ValueOrDefault,
-        "ItemStatus" => el.Properties.ItemStatus.ValueOrDefault,
-        "ItemType" => el.Properties.ItemType.ValueOrDefault,
-        "Orientation" => el.Properties.Orientation.ValueOrDefault.ToString(),
-        _ => throw new ArgumentException($"unknown attribute: {name}"),
-    };
+        var vp = el.Patterns.Value.PatternOrDefault;
+        if (vp is not null && vp.IsReadOnly.ValueOrDefault != true)
+        {
+            vp.SetValue(value);
+            return;
+        }
+        // Keyboard fallback: focus, clear existing content (Ctrl+A, Delete), then type.
+        el.Focus();
+        Keyboard.Press(VirtualKeyShort.CONTROL);
+        Keyboard.Type(VirtualKeyShort.KEY_A);
+        Keyboard.Release(VirtualKeyShort.CONTROL);
+        Keyboard.Type(VirtualKeyShort.DELETE);
+        if (value.Length > 0) Keyboard.Type(value);
+    }
 
     private static object RectOf(AutomationElement el)
     {
