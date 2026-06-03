@@ -7,7 +7,7 @@ matches another Windows driver, that is a deliberate compatibility alias, noted 
 Status: ✅ implemented & **verified on a real Windows machine** · 🟡 implemented, not yet individually
 verified · ⬜ planned · ⏸ out of scope by decision.
 
-_Last updated 2026-06-03. Current published: `0.1.0-beta.6` (npm tag `beta`, win-x64); Phase A shipped in beta.4._
+_Last updated 2026-06-04. Current published: `0.1.0-beta.8` (npm tags `beta` + `latest`, win-x64); Phase A shipped in beta.4. getAttribute('all') expanded to inspect-parity (supported-pattern props + ClickablePoint) in beta.8._
 
 ---
 

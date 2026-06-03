@@ -1,7 +1,7 @@
 # Roadmap — Remaining Phases
 
 Current API status: [`FUNCTIONS.md`](./FUNCTIONS.md). History: [`CHANGELOG-internal.md`](./CHANGELOG-internal.md).
-_Refreshed 2026-06-03 (post beta.6)._
+_Refreshed 2026-06-04 (post beta.8)._
 
 ## Done (shipped in beta, verified on Windows)
 
@@ -11,7 +11,7 @@ schema), screenshots, window commands, **W3C Actions** (full key map incl. Windo
 **30 `windows:` commands** (incl. real input, clipboard text+image, file transfer, bring-on-top click +
 escalating foreground), per-call `powershell` `timeoutMs`, W3C error contract, five-layer anti-hang
 (**frozen-app hang-injection E2E proven**). Published:
-`appium-flaui-native-driver@0.1.0-beta.6` (npm, win-x64, tag `beta`) + private GitHub repo.
+`appium-flaui-native-driver@0.1.0-beta.8` (npm, win-x64, tags `beta`+`latest`) + private GitHub repo.
 
 ---
 

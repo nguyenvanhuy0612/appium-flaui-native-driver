@@ -5,6 +5,36 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-04 — 🏁 v0.1.0-beta.8: getAttribute('all') inspect parity (supported-pattern props + ClickablePoint)
+
+> **Published to npm** (from .44, from-source build; `beta` + `latest` → `0.1.0-beta.8`, win-x64).
+
+Found by comparing the `all` dump of an Explorer item Edit (`/Pane/.../Edit[1]`) against inspect.exe
+(`inspect.item.md`): our fixed 70-key dump was missing 13 attrs inspect shows. `PropertyResolver.All` now:
+- **Expands supported-pattern property values** via dot-notation — for each pattern the element supports,
+  appends its props: `Value.Value`/`IsReadOnly`, `GridItem.Row/Column/RowSpan/ColumnSpan/ContainingGrid`,
+  `RangeValue.*`, `Toggle.ToggleState`, `ExpandCollapse.*`, `Scroll.*`, `Window.*`, `Grid.*`, `Selection.*`,
+  `SelectionItem.*`, `Transform.*`, `Dock.*`. (inspect lists a pattern's props only when supported — we match.)
+- **ClickablePoint** added AND fixed — `TryGetClickablePoint` → `{x,y}` (was absent/null).
+- **Element-ref props** (GridItem.ContainingGrid, SelectionItem.SelectionContainer) surface as the target's
+  Name instead of null.
+- Added the two flags FlaUI's pattern table omits (`IsCustomNavigationPatternAvailable`,
+  `IsSelectionPattern2Available`) as best-effort `false`.
+- Verified on .44: a Notepad Edit's `all` now carries `Value.Value` + `Scroll.*` (81 keys); `ClickablePoint`
+  returns `{x,y}`. Remaining cosmetic diff vs inspect: FlaUI's `IsTransformPattern2Available` vs inspect's
+  `IsTransform2PatternAvailable` (same flag; getAttribute accepts either).
+
+## 2026-06-03 (cont.) — 🏁 v0.1.0-beta.7: slim the npm tarball
+
+> **Published to npm** (`beta` → `0.1.0-beta.7`, win-x64); also moved the `latest` dist-tag to the newest
+> build (it had been stuck on beta.1, so the npm web page showed beta.1).
+
+- `files: ["build/**/*.js", "prebuilt/*/FlaUiSidecar.exe"]` — the tarball now carries only compiled JS +
+  the self-contained sidecar exe (npm always adds package.json + README). Dropped the shipped sidecar
+  `.pdb`, `web.config`, a stray `prebuilt/win-x64/tests/` test-build dir, and `build/.tsbuildinfo`.
+  Tarball = 10 entries, no cruft. (`dotnet publish` still regenerates the `tests/` dir locally on .44, but
+  the allowlist keeps it out of the package.)
+
 ## 2026-06-03 (cont.) — 🏁 v0.1.0-beta.6: restore `appium` peer dependency (revert beta.5)
 
 > **Published to npm** (from the .44 Windows box, from-source build; dist-tag `beta`, win-x64):
