@@ -1,4 +1,4 @@
-import type { BackendOp, BackendResult } from './ops';
+import type { BackendOp, BackendResult } from './ops.js';
 
 export class RpcError extends Error {
   constructor(public type: string, message: string) {

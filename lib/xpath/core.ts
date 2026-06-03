@@ -78,7 +78,7 @@ import {
   andCondition,
   orCondition,
   notCondition,
-} from '../backend/ops';
+} from '../backend/ops.js';
 
 /**
  * `xpath-analyzer` ships a CJS build whose default export is double-wrapped under interop

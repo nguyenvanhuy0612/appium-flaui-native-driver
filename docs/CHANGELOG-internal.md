@@ -5,6 +5,25 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — TS build GREEN + base-driver wired (verified on Mac)
+
+A subagent made the TypeScript layer build and load cleanly:
+- `npm run build` → 0 errors; `npm run test:unit` → 30/30; `node -e import('./build/lib/driver.js')` → `function`.
+- Pinned `@appium/base-driver@10.6.0` (dep) + `@appium/types@1.5.0` (devDep); removed the temporary `_notes`.
+- **Module strategy:** kept ESM + NodeNext and added `.js` extensions to all relative imports (Bundler
+  resolution would emit extensionless specifiers that Node's ESM loader can't resolve at runtime).
+- **`driver.ts` rewired to the real base-driver 10.6 API:** correct `createSession`/`deleteSession`/
+  `findElOrEls` signatures and W3C types, `ExecuteMethodMap<FlaUINativeDriver>`, removed the redundant
+  `execute` override. **XPath now wired into `findElOrEls`** via `xpathToElementIds` + a `findViaBackend` RPC.
+- Known harness quirk: importing `driver.ts` under `tsx` hits `ERR_PACKAGE_PATH_NOT_EXPORTED` from a
+  transitive dep (`unicorn-magic`); the real Node ESM loader resolves it (proven by the `node -e` gate), so
+  unit tests cover the xpath logic via `xpathToElementIds` directly rather than importing the driver.
+
+**Still needs the real Appium/Windows run:** createSession → sidecar spawn → find/source/attribute/action
+round-trips.
+
+---
+
 ## 2026-06-03 (cont.) — C# sidecar GREEN on Windows (verified)
 
 A subagent took the sidecar from "authored" to **compiling green + unit tests passing on the real Windows

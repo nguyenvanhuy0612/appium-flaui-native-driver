@@ -1,7 +1,7 @@
 // Pure mapping of `windows:` extension commands → backend ops (the Phase 2 command surface).
 // Kept free of @appium/base-driver so it is unit-testable on any OS. driver.ts wires these into
 // Appium 3's `executeMethodMap` and calls into here.
-import { actionOp, type BackendOp } from '../backend/ops';
+import { actionOp, type BackendOp } from '../backend/ops.js';
 
 /**
  * `windows:` command name → sidecar element-action name. These all operate on a single element via a

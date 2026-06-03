@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { RpcClient } from './rpc-client';
+import { RpcClient } from './rpc-client.js';
 
 export interface SidecarOptions {
   command: string;

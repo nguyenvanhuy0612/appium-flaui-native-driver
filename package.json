@@ -26,6 +26,7 @@
     "appium": "^3.0.0"
   },
   "devDependencies": {
+    "@appium/types": "1.5.0",
     "@types/node": "^22.0.0",
     "chai": "^5.1.2",
     "mocha": "^10.7.3",
@@ -36,10 +37,8 @@
     "build",
     "prebuilt"
   ],
-  "_notes": {
-    "appiumDeps": "Add @appium/base-driver + @appium/types pinned to the Appium-3 line when building lib/driver.ts (Task 1.6). Versions to be reconciled against the running Appium 3 (see docs/DECISIONS.md ADR-011). Kept out of the initial install so the backend foundation verifies fast and clean on any OS."
-  },
   "dependencies": {
+    "@appium/base-driver": "10.6.0",
     "xpath-analyzer": "^3.0.1"
   }
 }
