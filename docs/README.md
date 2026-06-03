@@ -6,6 +6,7 @@ Map of the project's docs, what each is for, and which is authoritative when two
 
 | If you want to… | Read |
 |---|---|
+| **Try the beta** (install + first session) | **[`BETA.md`](./BETA.md)** · [`RELEASE-0.1.0-beta.1.md`](./RELEASE-0.1.0-beta.1.md) |
 | Use the driver (install, caps, commands) | [`../README.md`](../README.md) → [`FUNCTIONS.md`](./FUNCTIONS.md) |
 | Know exactly what's supported and its verification status | **[`FUNCTIONS.md`](./FUNCTIONS.md)** — canonical API/status |
 | Understand the architecture & the stability design | [`superpowers/specs/2026-06-03-appium-flaui-native-driver-design.md`](./superpowers/specs/2026-06-03-appium-flaui-native-driver-design.md) |

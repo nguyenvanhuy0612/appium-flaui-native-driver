@@ -5,6 +5,19 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — 🏁 v0.1.0-beta.1 (stability proven, packaged, install-verified)
+
+- **Headline stability PROVEN on Windows** via `tests/e2e/11-hang-injection.e2e.spec.ts` (WinForms HangApp,
+  UI thread frozen 60 s): op → W3C `timeout` in ~5 s (watchdog), `/status` 200/43 ms, `DELETE` bounded
+  (~5 s, app-Kill fallback), fresh session recovers. **No driver changes needed.** e2e now **75/75**.
+- **Beta packaged & install-verified:** version → `0.1.0-beta.1`; `npm pack` → ~147 MB tarball (embeds
+  self-contained sidecars). `appium driver install --source=local <tgz>` from scratch → manifest reads
+  `0.1.0-beta.1`; **smoke green against the freshly-installed driver** under `appium --relaxed-security`.
+- Docs: `BETA.md` (try-it guide) + `RELEASE-0.1.0-beta.1.md`; FUNCTIONS §7 stability marked ✅ proven;
+  README/docs index point at the beta. Tagged `v0.1.0-beta.1`.
+
+---
+
 ## 2026-06-03 (cont.) — audit remediation + arm64/Server + permissive security posture
 
 - **Adversarial audit remediated** (all 26 findings; details in [`AUDIT-2026-06-03.md`](./AUDIT-2026-06-03.md)):

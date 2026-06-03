@@ -6,10 +6,10 @@ sidecar** (UIA3 by default, UIA2 opt-in). Designed **W3C-first** and **stability
 - **automationName:** `FlaUINative` · **driverName / feature-flag scope:** `flauinative`
 - **Platform:** Windows 10/11 and Windows Server 2016+ **with Desktop Experience** (x64 + arm64)
 
-> **Status: functional, pre-release (v0.0.1).** The full command surface below is implemented; the core
-> paths are verified end-to-end on a real Windows machine — including a head-to-head run of a third-party
-> driver's e2e suite where FlaUINative scored equal-or-better on every suite. Canonical API/status table:
-> [`docs/FUNCTIONS.md`](docs/FUNCTIONS.md).
+> **Status: BETA — `v0.1.0-beta.1`.** 👉 **Try it: [`docs/BETA.md`](docs/BETA.md)** · release notes:
+> [`docs/RELEASE-0.1.0-beta.1.md`](docs/RELEASE-0.1.0-beta.1.md). The full command surface below is
+> implemented and verified end-to-end on a real Windows machine (W3C e2e **75/75**, smoke 1/1, plus a
+> frozen-app stability proof). Canonical API/status: [`docs/FUNCTIONS.md`](docs/FUNCTIONS.md).
 
 ---
 

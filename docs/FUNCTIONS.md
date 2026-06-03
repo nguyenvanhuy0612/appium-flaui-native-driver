@@ -171,7 +171,10 @@ Five-layer anti-hang:
 
 Plus: self-contained sidecar exe (no .NET/Dev-Mode for users), stdout port handshake + stdin-EOF heartbeat
 (no orphans). Layers 1–4 + the scheduler are unit-tested; layer-5 recycle is unit-tested at the transport
-seam. The dedicated **frozen-app E2E + 30-min stress remain planned** (not yet run).
+seam. **✅ Proven on Windows by a frozen-app hang-injection E2E** (`tests/e2e/11-hang-injection.e2e.spec.ts`):
+against a WinForms app whose UI thread is wedged 60 s, an op returns W3C `timeout` in ~5 s (watchdog budget),
+`/status` stays 200, `DELETE` is bounded (app-Kill fallback), and a fresh session recovers. The 30-min
+session-stress run is **deferred** (per user).
 
 ## 8. Out of scope / planned
 
