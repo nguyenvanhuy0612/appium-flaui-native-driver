@@ -11,11 +11,30 @@ _Last updated 2026-06-03._
 
 ---
 
+## 0. Supported platforms
+
+| Platform | Arch | Status |
+|---|---|---|
+| Windows 10 / 11 | x64 | ✅ verified end-to-end |
+| Windows 10 / 11 | arm64 | 🟡 binary cross-built clean; **not yet run-verified on ARM hardware** |
+| Windows Server 2016 / 2019 / 2022 **with Desktop Experience** | x64 | 🟡 declared supported (UIA3 + .NET 8 present; no OS-version gate) |
+| Windows Server 2016 / 2019 / 2022 **with Desktop Experience** | arm64 | 🟡 declared; arm64 binary not yet ARM-run-verified |
+| Windows **Server Core** (no GUI) | any | ⏸ **unsupported** — no desktop means no UI to automate |
+
+The driver gates **only** on `platformName=Windows` (`inclusionCaseInsensitive:['Windows']`) — there is **no
+OS-version check** anywhere in the TS or C# layers, so it runs on any Windows providing UI Automation (UIA3)
+and .NET 8. Both Windows 10/11 and Windows Server with Desktop Experience qualify. **Interactive input**
+(real click/keys/Actions via SendInput) and foreground-dependent focus require an **active interactive
+desktop session** (not Windows Session 0); UIA-only reads/finds/setValue work regardless. arm64 binaries are
+selected automatically (`process.arch`) but are cross-built on x64 — declared, not yet hardware-verified.
+
+---
+
 ## 1. Session capabilities
 
 | Capability | Status | Behavior |
 |---|---|---|
-| `platformName` | ✅ | `Windows` (required) |
+| `platformName` | ✅ | `Windows` (required; no OS-version gate — see §0) |
 | `appium:automationName` | ✅ | `FlaUINative` (required) |
 | `appium:app` | ✅ | path of the app to launch, or **`Root`** for a whole-desktop session |
 | `appium:appTopLevelWindow` | ✅ | attach to a running window by hex HWND |
@@ -137,6 +156,7 @@ Verified by unit tests; the frozen-app E2E + 30-min stress remain planned.
 | PowerShell-backend internals of other drivers | ⏸ N/A by design |
 | `-windows uiautomation` raw condition | ⬜ |
 | rawView page source · active element · getDeviceTime | ⬜ |
-| win-arm64 prebuilt | ⬜ (publish script ready) |
+| win-arm64 prebuilt | 🟡 cross-built clean (~195 MB); not yet run-verified on ARM hardware |
+| Windows Server (Desktop Experience) support | 🟡 declared (no OS-version gate); Server Core ⏸ unsupported |
 | typeDelay/smoothPointerMove/delay* effects | ⬜ |
 | W3C-first own test suite | ✅ unit 110, smoke 1/1, **e2e 69/69** on the Windows box |

@@ -153,6 +153,49 @@ the roadmap ("recording tạm thời sẽ bỏ đi"). They would require shippin
 
 ---
 
+## ADR-013 — Keep bundled self-contained binaries; revisit per-arch split at first npm publish
+**Decision (2026-06-03):** Keep ADR-009's bundled approach — ship both `prebuilt/win-x64/FlaUiSidecar.exe`
+and `prebuilt/win-arm64/FlaUiSidecar.exe` inside the package — but acknowledge the real measured size and
+set a concrete trigger for switching. Do **not** move to download-on-install or build-on-install.
+
+**Measured reality (this session, on the Windows box, .NET 8.0.421, self-contained single-file):**
+win-x64 = 188,927,419 bytes (~180 MB), win-arm64 = 204,733,758 bytes (~195 MB) → **~375 MB packaged**,
+roughly 5–6× the ~30–70 MB/arch ADR-009 guessed at. The size comes from `--self-contained` (the whole .NET
+runtime is embedded per exe), which is exactly what buys the zero-setup / offline guarantee.
+
+**Options weighed:**
+- **(a) Keep both bundled (chosen).** Pros: honors the stability-first, offline, zero-end-user-setup
+  premise (no network failure point, no .NET SDK, no Developer Mode); install is a plain file copy; works
+  air-gapped. Cons: ~375 MB on disk/registry; a user only ever runs one arch, so half is dead weight.
+- **(b) Download-on-install.** Pulls the matching arch from a release asset in a postinstall step. Pros:
+  ~190 MB on the wire, only the needed arch. Cons: reintroduces the exact network failure point ADR-009
+  rejected; breaks air-gapped/offline installs; postinstall scripts are often disabled in hardened CI.
+- **(c) Build-on-install.** Run `dotnet publish` at install time. Pros: smallest package. Cons: requires the
+  .NET 8 SDK on **every** end-user machine — directly contradicts the "end users need no .NET" promise and
+  the stability priority; slow, and fails where the SDK/toolchain is absent.
+
+**Why (a):** The driver's whole reason to exist is stability and predictability (ADR-002). Trading a hard
+network/toolchain dependency for a smaller download is a bad trade for a desktop-automation driver that is
+frequently run on locked-down / offline lab and CI machines. Disk is cheaper than a flaky install.
+
+**Mitigation already in place:** TS selects the single arch at session start (`process.arch`), so only one
+exe is ever executed; the unused one is inert. `npm pack` ships exactly what's in `files`
+(`build` + `prebuilt`).
+
+**Revisit trigger (explicit):** when we first `npm publish` to the public registry, split per-arch so each
+consumer downloads only its own ~190 MB. The clean mechanism is two thin platform packages
+(`@…/sidecar-win32-x64`, `@…/sidecar-win32-arm64`) referenced as `optionalDependencies` with
+`os`/`cpu` filters, the main package falling back to whichever resolved — npm then installs only the
+matching arch. We defer that packaging work because (1) distribution today is `appium driver
+install --source=local` (a local checkout, where both arches are wanted anyway for cross-arch testing),
+(2) the arm64 binary is cross-built but **not yet run-verified on ARM hardware**, so coupling it into a
+published sub-package now would be premature. No `package.json` change this session.
+
+**Consequences:** Package stays ~375 MB until first public publish. `prebuilt/` remains in `files`.
+Documented honestly in the README size note.
+
+---
+
 **Resolved 2026-06-03 (on the test machine, Appium 3.5.0):** the running Appium bundles
 `@appium/base-driver@10.6.0` and `@appium/types@1.5.0`. Pin the driver to these exact versions so the
 driver and the server share one base-driver copy. Node 24.16 / npm 11.13 confirmed on the Windows target.

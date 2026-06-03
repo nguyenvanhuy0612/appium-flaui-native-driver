@@ -4,7 +4,7 @@ An **Appium 3** driver for **Windows desktop UI automation**, backed by a compil
 sidecar** (UIA3 by default, UIA2 opt-in). Designed **W3C-first** and **stability-first**.
 
 - **automationName:** `FlaUINative` · **driverName / feature-flag scope:** `flauinative`
-- **Platform:** Windows 10+ (x64; arm64 planned)
+- **Platform:** Windows 10/11 and Windows Server 2016+ **with Desktop Experience** (x64 + arm64)
 
 > **Status: functional, pre-release (v0.0.1).** The full command surface below is implemented; the core
 > paths are verified end-to-end on a real Windows machine — including a head-to-head run of a third-party
@@ -29,8 +29,39 @@ sidecar** (UIA3 by default, UIA2 opt-in). Designed **W3C-first** and **stability
 
 ## Requirements
 
-- Windows 10+ (x64) · **Appium 3** (`appium@^3.0.0`) · Node ≥ 20.19, npm ≥ 10.
-- End users need **no .NET**. Contributors rebuilding the sidecar need the .NET 8 SDK.
+**Operating system (one of):**
+
+- **Windows 10 / 11** — x64 or arm64.
+- **Windows Server 2016, 2019, or 2022 — with the _Desktop Experience_ feature** (x64 or arm64).
+
+The driver requires only `platformName=Windows`; there is **no OS-version gate** in the code — it runs on
+any Windows that provides UI Automation (UIA3) and .NET 8, which both Windows 10/11 and Windows Server with
+Desktop Experience do.
+
+> **Server Core (no GUI) is NOT supported.** UI automation needs a desktop/window manager; Server Core has
+> none, so there is nothing to automate. Use **Server with Desktop Experience** instead.
+>
+> **Interactive session required for input.** Real mouse/keyboard input (`click`, `keys`, Actions) uses
+> SendInput, which only reaches a window on an **active, interactive desktop**. Running Appium in Windows
+> Session 0 (e.g. as a service or over SSH) can find/read/set values via UIA, but interactive input and
+> foreground-dependent focus need an interactive logon session (e.g. an autologon console, or launch via a
+> Task Scheduler task with an interactive logon type). This applies equally to client Windows and Server.
+
+**Architecture binaries:** the self-contained sidecar ships for both `win-x64` and `win-arm64`; the driver
+picks the matching one at session start via `process.arch`. The **arm64 binary is cross-built and produced
+clean, but has not yet been run-verified on real ARM hardware** — x64 is fully verified end-to-end. See the
+size note below.
+
+**Other:**
+
+- **Appium 3** (`appium@^3.0.0`) · Node ≥ 20.19, npm ≥ 10.
+- End users need **no .NET** (the sidecar is self-contained). Contributors rebuilding the sidecar need the
+  .NET 8 SDK.
+
+> **Package size note (ADR-013):** because each sidecar is a self-contained single-file exe (the .NET
+> runtime is embedded), the prebuilt binaries are ~180 MB (x64) and ~195 MB (arm64) — ~375 MB bundled.
+> This is the deliberate cost of zero end-user setup and offline reliability; per-arch splitting is planned
+> for the first public npm publish (see `docs/DECISIONS.md` ADR-013).
 
 ## Install
 
@@ -105,5 +136,6 @@ appium --config appium-config.json
 ## Known gaps
 
 `-windows uiautomation` raw-condition locator, rawView page source, active-element/getDeviceTime,
-win-arm64 prebuilt, typeDelay/smooth-pointer effects, frozen-app stress E2E. Screen recording is **out of
-scope** (ADR-012).
+typeDelay/smooth-pointer effects, frozen-app stress E2E. The **win-arm64 prebuilt is now produced**
+(cross-built on x64) but not yet run-verified on ARM hardware. Screen recording is **out of scope**
+(ADR-012).
