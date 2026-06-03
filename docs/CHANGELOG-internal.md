@@ -5,6 +5,24 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-03 (cont.) — audit remediation + arm64/Server + permissive security posture
+
+- **Adversarial audit remediated** (all 26 findings; details in [`AUDIT-2026-06-03.md`](./AUDIT-2026-06-03.md)):
+  security gates made loud + prerun gated (F22/F23), scheduler concurrency-safe + fatal budget (F3),
+  bounded PowerShell child (F4), TS layer-5 recycle+reattach+retry (F1), COM release on eviction (F7),
+  app Kill fallback + ms:forcequit (F10), `flaui:*` caps threaded (F5), mapped W3C errors for malformed
+  input (F16/F17/F18/F20), docs-honesty pass (F14/F15/F19/F26). **W3C e2e 74/74** (+5 audit tests), smoke
+  1/1, Mac 116 unit + 5 C# scheduler.
+- **win-arm64 + Windows Server** declared/supported (ADR-013): arm64 cross-builds clean (~195MB, not yet
+  ARM-run-verified); no OS-version gate; Server 2016+ Desktop Experience supported, Server Core not.
+- **Security posture set to permissive (ADR-015):** isolated-VM target, never sacrifice a feature. Box
+  switched to `appium --relaxed-security`; **re-verified e2e 74/74 + smoke 1/1 under relaxed-security** —
+  every feature (powershell/file) usable with one flag, gates pass, nothing blocked.
+- **Docs pass:** added `docs/README.md` index; rewrote `SUBAGENTS.md` to the real orchestration model;
+  marked the Phase 0–1 plan completed; `PARITY.md` flagged historical.
+
+---
+
 ## 2026-06-03 (cont.) — W3C suite 69/69 GREEN + Win32 robust window foregrounding
 
 Closed the 5 input/focus failures with a real capability (not a test hack): a new `window action:

@@ -138,8 +138,9 @@ Element args accept `{elementId}` or the W3C element object.
 | `powershell` `{script}` → stdout | ✅ | requires `flauinative:power_shell`. Bounded: child process killed (whole tree) after `powerShellCommandTimeout` ms (default 60000) → W3C `timeout`. |
 | `pullFile` `{path}` / `pushFile` `{path,data}` / `pullFolder` `{path}` | ✅ | `flauinative:pull_file` / `push_file` |
 
-**Enabling insecure features (Appium 3):** the `--allow-insecure` CLI flag does not parse multiple scoped
-features — use a **config file**:
+**Enabling insecure features (Appium 3).** Recommended for isolated VMs (ADR-015): enable everything with
+one flag — `appium --relaxed-security`. To lock down to specific features instead, use a config file (the
+`--allow-insecure` CLI flag can't take multiple scoped features):
 ```json
 { "server": { "allow-insecure": ["flauinative:power_shell", "flauinative:pull_file", "flauinative:push_file"] } }
 ```

@@ -235,3 +235,24 @@ set scoped under `flauinative:` (ADR-008) is extended with `power_shell`.
 **Resolved 2026-06-03 (on the test machine, Appium 3.5.0):** the running Appium bundles
 `@appium/base-driver@10.6.0` and `@appium/types@1.5.0`. Pin the driver to these exact versions so the
 driver and the server share one base-driver copy. Node 24.16 / npm 11.13 confirmed on the Windows target.
+
+---
+
+## ADR-015 — Security posture: permissive by default, never trade a feature for strictness
+**Decision (user, 2026-06-03):** the driver targets **isolated, low-value VM environments**. Security is
+**not** strict and **no feature is ever removed, disabled-by-default, or sandboxed for security reasons**.
+The recommended dev/test posture is **`appium --relaxed-security`**, which enables every insecure feature
+(PowerShell, file transfer) with no per-feature flags.
+
+**Why:** automation runs in throwaway VMs with little/no sensitive data; friction from security gating
+costs more than it protects. The value proposition is capability, not lock-down.
+
+**No contradiction with the audit fixes:** the ADR-008/ADR-014 feature gates stay in the code — they are
+*standard Appium* and base-driver returns `true` for every feature when `--relaxed-security` is on, so the
+gates pass and nothing is blocked. They matter only to an operator who deliberately wants lock-down (who
+then uses scoped `allow-insecure`). Permissive default and loud-failing gates coexist: the gates never
+sacrifice a feature; they give a clean error *only if* an operator chose to disable one.
+
+**Consequences:** docs recommend `--relaxed-security` first; scoped `allow-insecure` is the optional
+locked-down alternative. No path allow-list / no PowerShell sandbox (F24 is documentation, not a
+restriction). Verified 2026-06-03: full W3C e2e **74/74** + smoke **1/1** under `appium --relaxed-security`.

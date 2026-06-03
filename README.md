@@ -102,8 +102,17 @@ Full table: [`docs/FUNCTIONS.md`](docs/FUNCTIONS.md) §1.
 
 ## Security / insecure features (Appium 3)
 
-`powershell`, `pullFile`/`pullFolder`, `pushFile` are gated behind scoped insecure features. **Note:** the
-`--allow-insecure` CLI flag does not parse multiple scoped features reliably — use a config file:
+`powershell` (incl. `appium:prerun`), `pullFile`/`pullFolder`, and `pushFile` are *insecure features*. The
+driver is designed for **isolated VM environments** and never sacrifices a feature for security (ADR-015).
+
+**Recommended (dev/test, isolated VM) — enable everything with one flag:**
+
+```bash
+appium --relaxed-security
+```
+
+**Locked-down alternative — enable only specific features.** The `--allow-insecure` CLI flag does not
+parse multiple scoped features reliably, so use a config file:
 
 ```jsonc
 // appium-config.json
@@ -111,10 +120,12 @@ Full table: [`docs/FUNCTIONS.md`](docs/FUNCTIONS.md) §1.
   "flauinative:power_shell", "flauinative:pull_file", "flauinative:push_file"
 ] } }
 ```
-
 ```bash
 appium --config appium-config.json
 ```
+
+> **Trust boundary (no sandbox):** once enabled, `power_shell` runs arbitrary code and the file commands
+> read/write any path — by design. Enable only when the server and all clients are trusted.
 
 ## Testing
 
