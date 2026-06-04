@@ -292,6 +292,10 @@ public sealed class OpInterpreter
                 return new { done = true };
             case "scroll":
             {
+                // Real mouse-wheel input goes to the window under the cursor — bring the target element's
+                // window to the front first (when an elementId is given) so the wheel hits the app, not an
+                // occluding window. nova2 parity with click/hover. (Pure-UIA scrollIntoView needs no bring.)
+                BasicBringOnTopFromArgs(args);
                 if (args.TryGetProperty("elementId", out _) || args.TryGetProperty("x", out _))
                     Mouse.MoveTo(ResolvePoint(args));
                 // `amount` (optional) multiplies the delta (nova2 passes raw deltas; amount is a convenience).
