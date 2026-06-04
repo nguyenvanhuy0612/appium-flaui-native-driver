@@ -25,7 +25,7 @@ Designed **W3C-first** and **stability-first**, it offers:
 
 > **Status: BETA** (`appium-flaui-native-driver@beta`, win-x64). The command surface below is implemented
 > and verified end-to-end on real Windows machines. Canonical, always-current API/status:
-> [`docs/FUNCTIONS.md`](docs/FUNCTIONS.md).
+> [`docs/03-reference/appium-api.md`](docs/03-reference/appium-api.md).
 
 ---
 
@@ -70,7 +70,7 @@ appium driver install --source=local /path/to/appium-flaui-native-driver
 
 > [!NOTE]
 > **Package size.** Each sidecar embeds the .NET runtime, so the prebuilt binary is ~180 MB (x64). This is
-> the deliberate cost of zero end-user setup and offline reliability (see `docs/DECISIONS.md` ADR-013).
+> the deliberate cost of zero end-user setup and offline reliability (see `docs/04-design/decisions.md` ADR-013).
 
 ---
 
@@ -203,7 +203,7 @@ all_attributes = element.get_attribute('all')
 ### Stability & Anti-Hang
 Unlike in-process drivers, every UIA call runs inside a separate sidecar process on a dedicated, cancellable
 STA worker. The timeouts are **nested** so the gentlest layer fires first
-(`UIA ≈20s < watchdog 30s < RPC 35s < hard-deadline 40s`; see [`docs/ANTI-HANG.md`](docs/ANTI-HANG.md)):
+(`UIA ≈20s < watchdog 30s < RPC 35s < hard-deadline 40s`; see [`docs/02-architecture/stability.md`](docs/02-architecture/stability.md)):
 
 1. **UIA `ConnectionTimeout` / `TransactionTimeout`** (`flaui:connectionTimeout` / `flaui:transactionTimeout`) —
    defaulted *below* the watchdog so a frozen COM call self-aborts before a thread needs poisoning.
@@ -480,19 +480,21 @@ dotnet publish sidecar -r win-x64 --self-contained -p:PublishSingleFile=true
 
 ### Project docs
 
+Start at [`docs/README.md`](docs/README.md) — a top-down reading map (overview → architecture → reference).
+
 | Doc | What |
 |---|---|
-| [`docs/FUNCTIONS.md`](docs/FUNCTIONS.md) | **Canonical API reference & support status** |
-| [`docs/BACKEND-FLAUI.md`](docs/BACKEND-FLAUI.md) | What FlaUI provides and how the sidecar uses it |
-| [`docs/superpowers/specs/2026-06-03-appium-flaui-native-driver-design.md`](docs/superpowers/specs/2026-06-03-appium-flaui-native-driver-design.md) | Architecture & anti-hang design |
-| [`docs/DECISIONS.md`](docs/DECISIONS.md) | ADRs (incl. ADR-012 screen recording out of scope, ADR-015 security posture) |
-| [`docs/NEXT-STEPS.md`](docs/NEXT-STEPS.md) | Roadmap (remaining phases) |
-| [`docs/CLEAN-REINSTALL.md`](docs/CLEAN-REINSTALL.md) | Fast clean wipe-and-reinstall on Windows test boxes |
-| [`docs/ANTI-HANG.md`](docs/ANTI-HANG.md) | Anti-hang layers, timeouts, failure modes (flow diagram) + proposed direction |
-| [`docs/CHANGELOG-internal.md`](docs/CHANGELOG-internal.md) | Verified-vs-authored work log |
+| [`docs/01-overview/`](docs/01-overview/) | Introduction & quickstart |
+| [`docs/02-architecture/`](docs/02-architecture/) | Overview (C4), request-flow, **stability** (timeouts/anti-hang), backend-flaui, sidecar-internals |
+| [`docs/03-reference/appium-api.md`](docs/03-reference/appium-api.md) | **Canonical API reference** — W3C + `windows:` commands & status |
+| [`docs/03-reference/rpc-protocol.md`](docs/03-reference/rpc-protocol.md) | The TS↔C# JSON seam (ops, envelope, errors) |
+| [`docs/03-reference/capabilities.md`](docs/03-reference/capabilities.md) · [`locators-xpath.md`](docs/03-reference/locators-xpath.md) | Capabilities; locators & XPath |
+| [`docs/04-design/`](docs/04-design/) | ADRs, known-issues, security |
+| [`docs/05-operations/clean-reinstall.md`](docs/05-operations/clean-reinstall.md) | Fast clean wipe-and-reinstall on Windows test boxes |
+| [`docs/internal/`](docs/internal/) | Maintainer notes (changelog, audit, subagents) |
 
 ### Known gaps / roadmap
 `-windows uiautomation` raw-condition locator, rawView page source, active-element / `getDeviceTime`,
 `typeDelay` / smooth-pointer / `delayBeforeClick`/`delayAfterClick` effects (currently accepted no-ops), and
 run-verification of the **win-arm64** prebuilt on real ARM hardware. Screen recording is **out of scope**
-(ADR-012). See [`docs/NEXT-STEPS.md`](docs/NEXT-STEPS.md).
+(ADR-012). See [`docs/04-design/known-issues.md`](docs/04-design/known-issues.md).

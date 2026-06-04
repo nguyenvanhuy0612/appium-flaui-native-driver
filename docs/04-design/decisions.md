@@ -4,7 +4,7 @@ Decisions locked by Claude (acting as senior dev) on 2026-06-03, per the user's 
 ("you decide, implement, and document thoroughly"). Each can be revisited; revisions append a new
 dated entry rather than rewriting history.
 
-Related: [`design spec`](./superpowers/specs/2026-06-03-appium-flaui-native-driver-design.md) · [`NEXT-STEPS`](./NEXT-STEPS.md)
+Related: [`design spec`](../superpowers/specs/2026-06-03-appium-flaui-native-driver-design.md) · [`known-issues`](./known-issues.md)
 
 ---
 
@@ -223,7 +223,7 @@ it is a convenience escape hatch for the rare cases where a client needs to run 
 `power_shell` feature; a `prerun` request without the feature **fails session creation** with the feature error.
 
 **Trust boundary:** with this feature enabled, any client reaching the endpoint can run arbitrary code with
-the Appium server's privileges. Documented as an insecure feature in FUNCTIONS.md/README (F24). Same applies
+the Appium server's privileges. Documented as an insecure feature in appium-api.md/README (F24). Same applies
 to `pull_file`/`push_file` (whole-filesystem read/write, no sandbox).
 
 **Consequences:** `powerShellCommandTimeout` and `prerun`/`postrun` capabilities are re-honored

@@ -8,7 +8,7 @@ and the non-negotiable verification rule. It reflects how the work is *actually*
 
 ## 1. Roles
 
-Two kinds of roles are used. **Role definitions** live in [`.claude/agents/`](../.claude/agents/) and can be
+Two kinds of roles are used. **Role definitions** live in [`.claude/agents/`](../../.claude/agents/) and can be
 invoked via `subagent_type`. In practice most work is dispatched as **task-scoped background agents** with an
 explicit, self-contained brief (the role file's spirit, inlined) — because each agent must carry its own
 context and the Windows build/run recipe.
@@ -35,7 +35,7 @@ orchestrator scopes the work
 ```
 
 Adversarial review (`spec-reviewer`) is run after substantive batches; its findings become the next
-remediation brief (see [`AUDIT-2026-06-03.md`](./AUDIT-2026-06-03.md)).
+remediation brief (see [`audit-2026-06-03.md`](./audit-2026-06-03.md)).
 
 ## 3. Conventions that prevent collisions
 
@@ -57,7 +57,7 @@ These are enforced by how briefs are written, and are the difference between cle
 **verified** (real command output on the real target), **authored-but-unverified**, or **deferred** (with a
 reason) — and to never fake a pass. The Windows test box makes real verification the default for
 Windows-only behavior; only genuinely unreachable cases (e.g. ARM hardware) stay "declared, not run-verified",
-and they are labelled as such in [`FUNCTIONS.md`](./FUNCTIONS.md).
+and they are labelled as such in [`appium-api.md`](../03-reference/appium-api.md).
 
 ## 5. The Windows verification recipe (what every box-using brief includes)
 
