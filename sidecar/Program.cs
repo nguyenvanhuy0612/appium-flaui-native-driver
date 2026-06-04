@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json;
 using FlaUI.Core;
 using FlaUI.UIA2;
@@ -20,6 +21,7 @@ var registry = new ElementRegistry();
 AutomationBase? automation = null;
 OpInterpreter? interp = null;
 Application? launchedApp = null;   // set only when WE launched the app (not when attaching)
+var attached = false;              // true when we attached to a PRE-EXISTING app/window — never close it on teardown
 var shouldCloseApp = true;
 var forceQuit = false;            // ms:forcequit — kill instead of graceful close (F10)
 string? appPath = null;            // remembered for `windows: launchApp`
@@ -62,6 +64,11 @@ app.MapPost("/session", async (HttpRequest req) =>
     return await RunOp(() =>
     {
         FlaUI.Core.AutomationElements.AutomationElement root;
+        // How long to wait for the app's top-level window to surface (ms:waitForAppLaunch, min 10s).
+        var rootWait = TimeSpan.FromSeconds(
+            caps.TryGetProperty("waitForAppLaunch", out var wfa) && wfa.ValueKind == JsonValueKind.Number
+                ? Math.Max(wfa.GetDouble(), 10) : 10);
+
         if (caps.TryGetProperty("appTopLevelWindow", out var h) && h.GetString() is { Length: > 0 } hex)
         {
             // Attach to an existing top-level window by HWND (hex, with or without 0x). Invalid hex is a
@@ -71,6 +78,20 @@ app.MapPost("/session", async (HttpRequest req) =>
                     System.Globalization.CultureInfo.InvariantCulture, out var hwnd))
                 throw new InvalidArgumentException($"appTopLevelWindow is not a valid hex HWND: '{hex}'");
             root = automation!.FromHandle(new IntPtr(hwnd));
+            attached = true;
+        }
+        else if (caps.TryGetProperty("appProcessId", out var pidEl) && pidEl.ValueKind == JsonValueKind.Number)
+        {
+            // Attach to an already-running app by PID; root at its OUTERMOST window (owned/inner dialogs
+            // are UIA descendants → already in-scope). We did not launch it → never close it on teardown.
+            root = ResolveAppRoot(pidEl.GetInt32(), rootWait);
+            attached = true;
+        }
+        else if (caps.TryGetProperty("appName", out var anEl) && anEl.GetString() is { Length: > 0 } appName)
+        {
+            var pid = FindPidByExe(appName) ?? throw new ArgumentException($"no running process matches appName '{appName}'");
+            root = ResolveAppRoot(pid, rootWait);
+            attached = true;
         }
         else if (caps.TryGetProperty("app", out var appEl) &&
                  string.Equals(appEl.GetString(), "Root", StringComparison.OrdinalIgnoreCase))
@@ -81,14 +102,33 @@ app.MapPost("/session", async (HttpRequest req) =>
         else
         {
             appPath = caps.GetProperty("app").GetString()!;
-            var psi = new System.Diagnostics.ProcessStartInfo(appPath)
+            // Attach-or-launch (the classic desktop case): if the app is ALREADY running, attach to it —
+            // this transparently handles single-instance apps (e.g. SecureAge) whose fresh launch would
+            // just hand off to the running instance and exit. Otherwise, launch it.
+            var existing = FindPidByExe(appPath);
+            if (existing is int epid)
             {
-                Arguments = caps.TryGetProperty("appArguments", out var aa) ? aa.GetString() ?? string.Empty : string.Empty,
-                WorkingDirectory = caps.TryGetProperty("appWorkingDir", out var wd) ? wd.GetString() ?? string.Empty : string.Empty,
-                UseShellExecute = true,
-            };
-            launchedApp = Application.Launch(psi);
-            root = launchedApp.GetMainWindow(automation!);
+                root = ResolveAppRoot(epid, rootWait);
+                attached = true;
+            }
+            else
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo(appPath)
+                {
+                    Arguments = caps.TryGetProperty("appArguments", out var aa) ? aa.GetString() ?? string.Empty : string.Empty,
+                    WorkingDirectory = caps.TryGetProperty("appWorkingDir", out var wd) ? wd.GetString() ?? string.Empty : string.Empty,
+                    UseShellExecute = true,
+                };
+                launchedApp = Application.Launch(psi);
+                try { root = ResolveAppRoot(launchedApp.ProcessId, rootWait); }
+                catch
+                {
+                    // Launched process handed off & exited (single-instance race): attach to the survivor.
+                    var alt = FindPidByExe(appPath) ?? throw new ArgumentException($"app launched but no window appeared for '{appPath}'");
+                    root = ResolveAppRoot(alt, rootWait);
+                    launchedApp = null; attached = true; // we no longer own the surviving instance
+                }
+            }
         }
         return interp!.OpenSession(root);
     });
@@ -96,10 +136,13 @@ app.MapPost("/session", async (HttpRequest req) =>
 
 app.MapDelete("/session", async () => await RunOp(() =>
 {
-    if (shouldCloseApp)
+    // ATTACHED sessions: we connected to a pre-existing app/window we did NOT start — never close or kill
+    // it (FlaUI's Close()/Kill() terminate the process regardless of attach-vs-launch). Just let the
+    // sidecar exit and release UIA refs. Only a session we actually LAUNCHED is closed per shouldCloseApp.
+    if (!attached && shouldCloseApp)
     {
         if (launchedApp is not null) CloseOrKillLaunchedApp();
-        else interp?.CloseRootWindow();   // attached session: close via WindowPattern
+        else interp?.CloseRootWindow();
     }
     return new { done = true };
 }));
@@ -111,6 +154,86 @@ void CloseOrKillLaunchedApp()
     if (forceQuit) { try { launchedApp.Kill(); } catch { /* best effort */ } return; }
     try { launchedApp.Close(); }
     catch { try { launchedApp.Kill(); } catch { /* best effort */ } }
+}
+
+// ── App-root resolution (the "outermost window" selection) ────────────────────────────────────
+// Root a session at the app's OUTERMOST window so owned/inner dialogs (UIA descendants of the owner)
+// fall inside its subtree. We use the structural UIA signal (a top-level window is a DIRECT child of the
+// desktop) rather than the CLR Process.MainWindowHandle heuristic, which can latch onto a modal child.
+FlaUI.Core.AutomationElements.AutomationElement ResolveAppRoot(int pid, TimeSpan wait)
+{
+    var deadline = DateTime.UtcNow + wait;
+    FlaUI.Core.AutomationElements.AutomationElement? modalOnly = null;
+    while (true)
+    {
+        try { if (System.Diagnostics.Process.GetProcessById(pid).HasExited) break; }
+        catch { break; } // process gone (e.g. single-instance launcher that handed off and exited)
+
+        // Direct desktop children of this process == its true top-level windows (nested/owned dialogs are
+        // descendants, so they are excluded here — exactly the root candidates we want).
+        var tops = automation!.GetDesktop().FindAllChildren(cf =>
+            cf.ByControlType(FlaUI.Core.Definitions.ControlType.Window).And(cf.ByProcessId(pid)));
+        var nonModal = tops.Where(w => !IsModalSafe(w)).ToArray();
+        if (nonModal.Length == 1) return nonModal[0];
+        if (nonModal.Length > 1) return PickOutermost(nonModal, pid);
+        if (tops.Length > 0) modalOnly ??= tops[0]; // only modal windows up so far — keep as a fallback
+        if (DateTime.UtcNow >= deadline) break;
+        System.Threading.Thread.Sleep(150);
+    }
+    if (modalOnly is not null) return modalOnly;
+    // Last resort: the CLR main-window heuristic (validated only by being non-null).
+    try { var w = Application.Attach(pid).GetMainWindow(automation!, TimeSpan.FromSeconds(2)); if (w is not null) return w; }
+    catch { /* fall through */ }
+    throw new ArgumentException($"no top-level window found for process {pid} — is the app showing a window on the interactive desktop?");
+}
+
+bool IsModalSafe(FlaUI.Core.AutomationElements.AutomationElement w)
+{
+    try { var p = w.Patterns.Window.PatternOrDefault; return p is not null && p.IsModal.ValueOrDefault; }
+    catch { return false; }
+}
+
+// Disambiguate when a process has >1 non-modal top-level window: prefer the CLR main-window handle, else
+// the most-populated window (the real frame, not an empty popup/host window).
+FlaUI.Core.AutomationElements.AutomationElement PickOutermost(FlaUI.Core.AutomationElements.AutomationElement[] cands, int pid)
+{
+    try
+    {
+        var mainH = System.Diagnostics.Process.GetProcessById(pid).MainWindowHandle;
+        if (mainH != IntPtr.Zero)
+        {
+            var match = cands.FirstOrDefault(w => HandleOf(w) == mainH.ToInt64());
+            if (match is not null) return match;
+        }
+    }
+    catch { /* ignore */ }
+    return cands.OrderByDescending(ChildCountSafe).First();
+}
+
+long HandleOf(FlaUI.Core.AutomationElements.AutomationElement w)
+{
+    try { return w.Properties.NativeWindowHandle.ValueOrDefault.ToInt64(); } catch { return 0; }
+}
+
+int ChildCountSafe(FlaUI.Core.AutomationElements.AutomationElement w)
+{
+    try { return w.FindAllChildren().Length; } catch { return 0; }
+}
+
+// Newest running process whose executable matches a path/name (extension optional). Null if none.
+int? FindPidByExe(string nameOrPath)
+{
+    var exe = System.IO.Path.GetFileNameWithoutExtension(nameOrPath);
+    if (string.IsNullOrEmpty(exe)) return null;
+    var procs = System.Diagnostics.Process.GetProcessesByName(exe);
+    if (procs.Length == 0) return null;
+    System.Diagnostics.Process? best = null;
+    foreach (var p in procs)
+    {
+        try { if (best is null || p.StartTime > best.StartTime) best = p; }
+        catch { best ??= p; }
+    }
+    return best?.Id;
 }
 
 app.MapPost("/op", async (HttpRequest req) =>
@@ -156,8 +279,8 @@ object HandleApp(JsonElement op)
         {
             if (string.IsNullOrEmpty(appPath)) throw new ArgumentException("no app was configured at session start");
             launchedApp = Application.Launch(appPath);
-            var root = launchedApp.GetMainWindow(automation!);
-            return interp!.OpenSession(root); // re-root the session on the relaunched app
+            var root = ResolveAppRoot(launchedApp.ProcessId, TimeSpan.FromSeconds(10));
+            return interp!.OpenSession(root); // re-root the session on the relaunched app (outermost window)
         }
         case "close":
             if (launchedApp is not null) CloseOrKillLaunchedApp();

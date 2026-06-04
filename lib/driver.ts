@@ -41,6 +41,8 @@ const constraints = {
   platformName: { isString: true, presence: true, inclusionCaseInsensitive: ['Windows'] },
   app: { isString: true },
   appTopLevelWindow: { isString: true }, // hex HWND of an existing window to attach to
+  appProcessId: { isNumber: true }, // attach to an already-running app by PID (roots at its outermost window)
+  appName: { isString: true }, // attach to an already-running app by executable name (e.g. "SecureAge")
   appArguments: { isString: true },
   appWorkingDir: { isString: true },
   shouldCloseApp: { isBoolean: true }, // default true
@@ -167,8 +169,10 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     const [sessionId, caps] = await super.createSession(w3cCaps1, w3cCaps2, w3cCaps3, driverData);
     const arch = process.arch === 'arm64' ? 'win-arm64' : 'win-x64';
     const exe = path.resolve(__dirname, `../../prebuilt/${arch}/FlaUiSidecar.exe`);
-    if (!this.opts.app && !this.opts.appTopLevelWindow) {
-      throw new Error(`Either 'appium:app' or 'appium:appTopLevelWindow' must be provided`);
+    if (!this.opts.app && !this.opts.appTopLevelWindow && this.opts.appProcessId == null && !this.opts.appName) {
+      throw new Error(
+        `One of 'appium:app', 'appium:appTopLevelWindow', 'appium:appProcessId' or 'appium:appName' must be provided`,
+      );
     }
     this.sidecarExe = exe;
     this.operationTimeoutMs = this.opts['flaui:operationTimeout'];
@@ -176,8 +180,11 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     this.sessionBody = {
       app: this.opts.app,
       appTopLevelWindow: this.opts.appTopLevelWindow,
+      appProcessId: this.opts.appProcessId,
+      appName: this.opts.appName,
       appArguments: this.opts.appArguments,
       appWorkingDir: this.opts.appWorkingDir,
+      waitForAppLaunch: this.opts['ms:waitForAppLaunch'],
       shouldCloseApp: this.opts.shouldCloseApp ?? true,
       forcequit: this.opts['ms:forcequit'] ?? false,
       backend: this.opts['flaui:backend'] ?? 'uia3',

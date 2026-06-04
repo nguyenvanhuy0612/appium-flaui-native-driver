@@ -69,13 +69,6 @@ appium driver install --source=local /path/to/appium-flaui-native-driver
 - **Appium 3** (`appium@^3.0.0`), Node ≥ 20.19, npm ≥ 10.
 
 > [!NOTE]
-> **Interactive desktop required for input.** Real mouse/keyboard (`click`, `keys`, Actions) uses
-> `SendInput`, which only reaches an **active, interactive desktop**. Running Appium in Windows Session 0
-> (e.g. as a service or plain SSH) can still find/read/set values via UIA, but interactive input and
-> foreground-dependent focus need an interactive logon session (autologon console, or a Task Scheduler
-> task with an interactive logon type).
-
-> [!NOTE]
 > **Package size.** Each sidecar embeds the .NET runtime, so the prebuilt binary is ~180 MB (x64). This is
 > the deliberate cost of zero end-user setup and offline reliability (see `docs/DECISIONS.md` ADR-013).
 

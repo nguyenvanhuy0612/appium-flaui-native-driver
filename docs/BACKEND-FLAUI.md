@@ -120,7 +120,9 @@ _Sources: `AutomationElement.cs`, `.Find.cs`, `.AsMethods.cs`, `AutomationElemen
 - ▫ **VirtualizedItem** — `Realize()`; ▫ **ItemContainer** — `FindItemByProperty(...)`. _Feature:_ materialize &
   locate items in **virtualized** lists/trees (big for long lists).
 - ✅ **LegacyIAccessible** — `Name/Value/Role/State/DefaultAction/Description/Help/KeyboardShortcut/ChildId`,
-  ▫ `DoDefaultAction()`, `Select(flags)`, `SetValue(string)` (MSAA bridge).
+  ▫ `DoDefaultAction()`, `Select(flags)`, `SetValue(string)` (MSAA bridge). getAttribute/getProperty also
+  accept the case-insensitive **`Legacy<Prop>` short form** (drop the `IAccessible.`), e.g. `LegacyValue` ≡
+  `LegacyIAccessible.Value`, for all 9 props above. The `all` dump still keys these as `LegacyIAccessible.<Prop>`.
 - ▫ **Annotation** (`AnnotationTypeName/Author/DateTime/Target`), **Drag**/**DropTarget** (`IsGrabbed/GrabbedItems`,
   drop effects), **SynchronizedInput**, **Spreadsheet**/**SpreadsheetItem**, **Styles** (`StyleName/FillColor/Shape`),
   **ObjectModel** (`GetUnderlyingObjectModel()`), **CustomNavigation** (`Navigate(dir)` _(verify)_).

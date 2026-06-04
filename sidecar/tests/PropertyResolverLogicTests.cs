@@ -52,10 +52,30 @@ public class PropertyResolverLogicTests
         Assert.Equal(expected, prop);
     }
 
+    // Every LegacyIAccessible sub-property in PascalCase short form (Legacy<Prop>, no "IAccessible.")
+    // must normalize to its canonical prop — i.e. LegacyValue ≡ LegacyIAccessible.Value, for all 9.
+    [Theory]
+    [InlineData("LegacyName", "Name")]
+    [InlineData("LegacyValue", "Value")]
+    [InlineData("LegacyRole", "Role")]
+    [InlineData("LegacyState", "State")]
+    [InlineData("LegacyDescription", "Description")]
+    [InlineData("LegacyHelp", "Help")]
+    [InlineData("LegacyKeyboardShortcut", "KeyboardShortcut")]
+    [InlineData("LegacyDefaultAction", "DefaultAction")]
+    [InlineData("LegacyChildId", "ChildId")]
+    public void Normalizes_pascalcase_legacy_short_form(string input, string expected)
+    {
+        Assert.True(PropertyResolverLogic.TryNormalizeLegacyName(input, out var prop));
+        Assert.Equal(expected, prop);
+    }
+
     [Theory]
     [InlineData("Name")]
     [InlineData("Value.Value")]
-    [InlineData("legacyBogus")]          // legacy* with an unknown sub-prop is NOT a legacy name
+    [InlineData("Legacy")]               // bare "legacy" prefix with no sub-prop is NOT a legacy name
+    [InlineData("LegacyBogus")]          // legacy* with an unknown sub-prop is NOT a legacy name
+    [InlineData("legacyBogus")]
     [InlineData("LegacyIAccessible.Nope")]
     public void Rejects_non_legacy_names(string input) =>
         Assert.False(PropertyResolverLogic.TryNormalizeLegacyName(input, out _));
