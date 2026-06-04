@@ -454,6 +454,12 @@ public sealed class OpInterpreter
         var el = op.TryGetProperty("id", out var id) && id.GetString() is { Length: > 0 } s
             ? ResolveOrThrow(s)
             : _root!;
+        // Capture.Element grabs the SCREEN region at the element's bounds — if the app window is occluded by
+        // another window (common with attached/background apps), we'd capture the wrong pixels. Bring the
+        // element's top-level window to the front first (nova2 parity), then let it finish surfacing/
+        // repainting before the grab. Best-effort — never fails the screenshot.
+        BasicBringOnTop(el);
+        System.Threading.Thread.Sleep(200);
         using var img = FlaUI.Core.Capturing.Capture.Element(el);
         using var ms = new MemoryStream();
         img.Bitmap.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
