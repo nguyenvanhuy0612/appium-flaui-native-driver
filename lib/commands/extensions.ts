@@ -68,7 +68,10 @@ export const INPUT_COMMANDS: Readonly<Record<string, { params: { required: strin
     },
     hover: { params: { required: [], optional: ['elementId', 'x', 'y', 'modifierKeys', 'durationMs'] } },
     scroll: {
-      params: { required: [], optional: ['elementId', 'x', 'y', 'deltaX', 'deltaY', 'amount', 'modifierKeys'] },
+      params: {
+        required: [],
+        optional: ['elementId', 'x', 'y', 'deltaX', 'deltaY', 'amount', 'modifierKeys', 'bringToFront'],
+      },
     },
     keys: { params: { required: ['actions'], optional: [] } },
     clickAndDrag: {

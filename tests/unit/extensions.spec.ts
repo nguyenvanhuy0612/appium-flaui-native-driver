@@ -56,9 +56,9 @@ describe('windows: INPUT command param parity', () => {
     expect(opt).to.include.members(['modifierKeys', 'durationMs']);
   });
 
-  it('scroll accepts deltaX/deltaY/amount/modifierKeys', () => {
+  it('scroll accepts deltaX/deltaY/amount/modifierKeys/bringToFront', () => {
     const opt = INPUT_COMMANDS.scroll.params.optional;
-    expect(opt).to.include.members(['deltaX', 'deltaY', 'amount', 'modifierKeys']);
+    expect(opt).to.include.members(['deltaX', 'deltaY', 'amount', 'modifierKeys', 'bringToFront']);
   });
 
   it('clickAndDrag accepts start/end targets + button/durationMs/modifierKeys', () => {
