@@ -41,7 +41,21 @@ export class RpcClient {
   private async fetchJson(method: string, path: string, body?: unknown): Promise<unknown> {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), this.timeoutMs);
-    try {
+    // HARD backstop deadline (does NOT rely on the AbortController). A fetch waiting on a half-open
+    // connection — sidecar process died/froze mid-request — has been observed in the wild NOT to honour
+    // the abort signal, leaving this promise pending forever. Because the driver serialises commands per
+    // session, one never-settling RPC wedges the WHOLE command queue indefinitely. Promise.race against an
+    // independent timer guarantees the RPC always settles. We reject with a plain Error (NOT an RpcError),
+    // so the caller treats it as a TRANSPORT failure and recycles the sidecar (a clean RpcError would be
+    // taken as a live backend response). Grace of 5s lets the sidecar's own op-watchdog answer first.
+    let hardTimer: ReturnType<typeof setTimeout> | undefined;
+    const hardDeadline = new Promise<never>((_, reject) => {
+      hardTimer = setTimeout(
+        () => reject(new Error(`sidecar RPC exceeded ${this.timeoutMs + 5000}ms (${method} ${path}) — transport hang`)),
+        this.timeoutMs + 5000,
+      );
+    });
+    const work = (async () => {
       const r = await fetch(this.baseUrl + path, {
         method,
         headers: body ? { 'content-type': 'application/json' } : undefined,
@@ -62,8 +76,15 @@ export class RpcClient {
         throw new RpcError('unknown error', `sidecar HTTP ${r.status}: ${text.slice(0, 300)}`);
       }
       return parsed;
+    })();
+    // Observe a late settle of `work` if the hard deadline won the race, so it never becomes an
+    // unhandled rejection.
+    work.catch(() => {});
+    try {
+      return await Promise.race([work, hardDeadline]);
     } finally {
       clearTimeout(t);
+      if (hardTimer) clearTimeout(hardTimer);
     }
   }
 }

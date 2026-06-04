@@ -1,6 +1,6 @@
 {
   "name": "appium-flaui-native-driver",
-  "version": "0.1.0-beta.12",
+  "version": "0.1.0-beta.13",
   "description": "Appium 3 Windows driver backed by a compiled C# FlaUI sidecar (UIA3/UIA2 + MSAA legacy).",
   "type": "module",
   "main": "build/lib/driver.js",
