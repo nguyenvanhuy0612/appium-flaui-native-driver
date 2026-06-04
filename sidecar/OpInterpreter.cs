@@ -238,7 +238,8 @@ public sealed class OpInterpreter
         {
             case "click":
             {
-                BasicBringOnTopFromArgs(args);   // nova2 parity: focus the Window/Pane ancestor first
+                // bringToFront (default TRUE for click) — only takes effect when an elementId is supplied.
+                if (WantsBring(args, true)) BasicBringOnTopFromArgs(args);   // nova2 parity: focus the Window/Pane ancestor first
                 var pt = ResolvePoint(args);
                 var button = ButtonOf(args);
                 var times = args.TryGetProperty("times", out var t) ? t.GetInt32() : 1;
@@ -268,7 +269,8 @@ public sealed class OpInterpreter
             }
             case "hover":
             {
-                BasicBringOnTopFromArgs(args);
+                // bringToFront (default FALSE for hover) — only takes effect when an elementId is supplied.
+                if (WantsBring(args, false)) BasicBringOnTopFromArgs(args);
                 var mods = ModifiersOf(args);
                 PressModifiers(mods);
                 try
@@ -292,13 +294,13 @@ public sealed class OpInterpreter
                 return new { done = true };
             case "scroll":
             {
-                // Real mouse-wheel input goes to the window under the cursor — bring the target element's
-                // window to the front first (when an elementId is given) so the wheel hits the app, not an
-                // occluding window. nova2 parity with click/hover. (Pure-UIA scrollIntoView needs no bring.)
-                // `bringToFront` (optional, default true) opts out of this when the caller knows the target
-                // window is already foreground (e.g. scrolling within the active window under the cursor).
-                var bring = !args.TryGetProperty("bringToFront", out var bf) || bf.ValueKind != JsonValueKind.False;
-                if (bring) BasicBringOnTopFromArgs(args);
+                // Real mouse-wheel input goes to the window under the cursor. `bringToFront` (optional,
+                // default FALSE for scroll) opts IN to bringing the target element's window to the front
+                // first (when an elementId is given) so the wheel hits the app, not an occluding window.
+                // Default-off because scrolling typically targets the already-foreground window under the
+                // cursor; opt in when an occluding window may steal the wheel. (Pure-UIA scrollIntoView
+                // needs no bring.)
+                if (WantsBring(args, false)) BasicBringOnTopFromArgs(args);
                 if (args.TryGetProperty("elementId", out _) || args.TryGetProperty("x", out _))
                     Mouse.MoveTo(ResolvePoint(args));
                 // `amount` (optional) multiplies the delta (nova2 passes raw deltas; amount is a convenience).
@@ -339,7 +341,10 @@ public sealed class OpInterpreter
             }
             case "clickAndDrag":
             {
-                if (args.TryGetProperty("startElementId", out var sidv) && sidv.GetString() is { Length: > 0 } sids)
+                // bringToFront (default TRUE for clickAndDrag) — only takes effect when a start elementId
+                // is supplied (the drag's anchor window).
+                if (WantsBring(args, true)
+                    && args.TryGetProperty("startElementId", out var sidv) && sidv.GetString() is { Length: > 0 } sids)
                     BasicBringOnTop(ResolveOrThrow(sids));
                 var from = ResolvePointPrefixed(args, "start");
                 var to = ResolvePointPrefixed(args, "end");
@@ -375,6 +380,15 @@ public sealed class OpInterpreter
     }
 
     // ── bring-on-top helpers (click = basic focus, nova2 parity) ─────────────────────────────
+    /// <summary>Default-aware read of the optional `bringToFront` arg. Returns <paramref name="def"/> when
+    /// the arg is absent; otherwise true unless it was explicitly `false`. Per agreed policy the caller still
+    /// gates the actual bring on an elementId being present (BasicBringOnTopFromArgs / the start-id check).</summary>
+    private static bool WantsBring(JsonElement args, bool def)
+    {
+        if (!args.TryGetProperty("bringToFront", out var b)) return def;
+        return b.ValueKind != JsonValueKind.False;
+    }
+
     private void BasicBringOnTopFromArgs(JsonElement args)
     {
         if (args.TryGetProperty("elementId", out var idv) && idv.GetString() is { Length: > 0 } id)
@@ -464,18 +478,17 @@ public sealed class OpInterpreter
     {
         var hasId = op.TryGetProperty("id", out var id) && id.GetString() is { Length: > 0 } s;
         var el = hasId ? ResolveOrThrow(id.GetString()!) : _root!;
-        // For an explicit element capture, best-effort scroll it into view first so an off-viewport element
-        // isn't captured clipped (or empty). Skip for the root/desktop screenshot. Never fails the screenshot.
+        // Agreed policy: ELEMENT screenshot = bring → capture (NO scrollIntoView). DESKTOP/root screenshot
+        // (no element id) = capture only, NO bring.
+        // Capture.Element grabs the SCREEN region at the element's bounds — if the app window is occluded by
+        // another window (common with attached/background apps), we'd capture the wrong pixels. For an
+        // explicit element capture, bring the element's top-level window to the front first (nova2 parity),
+        // then let it finish surfacing/repainting before the grab. Best-effort — never fails the screenshot.
         if (hasId)
         {
-            try { el.Patterns.ScrollItem.PatternOrDefault?.ScrollIntoView(); } catch { }
+            BasicBringOnTop(el);
+            System.Threading.Thread.Sleep(200);
         }
-        // Capture.Element grabs the SCREEN region at the element's bounds — if the app window is occluded by
-        // another window (common with attached/background apps), we'd capture the wrong pixels. Bring the
-        // element's top-level window to the front first (nova2 parity), then let it finish surfacing/
-        // repainting before the grab. Best-effort — never fails the screenshot.
-        BasicBringOnTop(el);
-        System.Threading.Thread.Sleep(200);
         using var img = FlaUI.Core.Capturing.Capture.Element(el);
         using var ms = new MemoryStream();
         img.Bitmap.Save(ms, System.Drawing.Imaging.ImageFormat.Png);

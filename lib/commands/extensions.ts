@@ -63,10 +63,10 @@ export const INPUT_COMMANDS: Readonly<Record<string, { params: { required: strin
     click: {
       params: {
         required: [],
-        optional: ['elementId', 'x', 'y', 'button', 'times', 'modifierKeys', 'durationMs', 'interClickDelayMs'],
+        optional: ['elementId', 'x', 'y', 'button', 'times', 'modifierKeys', 'durationMs', 'interClickDelayMs', 'bringToFront'],
       },
     },
-    hover: { params: { required: [], optional: ['elementId', 'x', 'y', 'modifierKeys', 'durationMs'] } },
+    hover: { params: { required: [], optional: ['elementId', 'x', 'y', 'modifierKeys', 'durationMs', 'bringToFront'] } },
     scroll: {
       params: {
         required: [],
@@ -79,7 +79,7 @@ export const INPUT_COMMANDS: Readonly<Record<string, { params: { required: strin
         required: [],
         optional: [
           'startElementId', 'startX', 'startY', 'endElementId', 'endX', 'endY',
-          'button', 'durationMs', 'modifierKeys',
+          'button', 'durationMs', 'modifierKeys', 'bringToFront',
         ],
       },
     },

@@ -44,16 +44,18 @@ describe('windows: INPUT command param parity', () => {
     expect(isSupportedInputCommand('nope')).to.equal(false);
   });
 
-  it('click accepts the full arg set (button/times/modifierKeys/durationMs/interClickDelayMs)', () => {
+  it('click accepts the full arg set (button/times/modifierKeys/durationMs/interClickDelayMs/bringToFront)', () => {
     const opt = INPUT_COMMANDS.click.params.optional;
-    for (const p of ['elementId', 'x', 'y', 'button', 'times', 'modifierKeys', 'durationMs', 'interClickDelayMs']) {
+    for (const p of [
+      'elementId', 'x', 'y', 'button', 'times', 'modifierKeys', 'durationMs', 'interClickDelayMs', 'bringToFront',
+    ]) {
       expect(opt, `click missing ${p}`).to.include(p);
     }
   });
 
-  it('hover accepts modifierKeys + durationMs', () => {
+  it('hover accepts modifierKeys + durationMs + bringToFront', () => {
     const opt = INPUT_COMMANDS.hover.params.optional;
-    expect(opt).to.include.members(['modifierKeys', 'durationMs']);
+    expect(opt).to.include.members(['modifierKeys', 'durationMs', 'bringToFront']);
   });
 
   it('scroll accepts deltaX/deltaY/amount/modifierKeys/bringToFront', () => {
@@ -61,11 +63,11 @@ describe('windows: INPUT command param parity', () => {
     expect(opt).to.include.members(['deltaX', 'deltaY', 'amount', 'modifierKeys', 'bringToFront']);
   });
 
-  it('clickAndDrag accepts start/end targets + button/durationMs/modifierKeys', () => {
+  it('clickAndDrag accepts start/end targets + button/durationMs/modifierKeys/bringToFront', () => {
     const opt = INPUT_COMMANDS.clickAndDrag.params.optional;
     expect(opt).to.include.members([
       'startElementId', 'startX', 'startY', 'endElementId', 'endX', 'endY',
-      'button', 'durationMs', 'modifierKeys',
+      'button', 'durationMs', 'modifierKeys', 'bringToFront',
     ]);
   });
 });
