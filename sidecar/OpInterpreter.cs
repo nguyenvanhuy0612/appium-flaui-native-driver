@@ -295,7 +295,10 @@ public sealed class OpInterpreter
                 // Real mouse-wheel input goes to the window under the cursor — bring the target element's
                 // window to the front first (when an elementId is given) so the wheel hits the app, not an
                 // occluding window. nova2 parity with click/hover. (Pure-UIA scrollIntoView needs no bring.)
-                BasicBringOnTopFromArgs(args);
+                // `bringToFront` (optional, default true) opts out of this when the caller knows the target
+                // window is already foreground (e.g. scrolling within the active window under the cursor).
+                var bring = !args.TryGetProperty("bringToFront", out var bf) || bf.ValueKind != JsonValueKind.False;
+                if (bring) BasicBringOnTopFromArgs(args);
                 if (args.TryGetProperty("elementId", out _) || args.TryGetProperty("x", out _))
                     Mouse.MoveTo(ResolvePoint(args));
                 // `amount` (optional) multiplies the delta (nova2 passes raw deltas; amount is a convenience).
@@ -459,9 +462,14 @@ public sealed class OpInterpreter
     /// <summary>PNG screenshot (base64) of an element, or of the session root when no id is given.</summary>
     public object Screenshot(JsonElement op)
     {
-        var el = op.TryGetProperty("id", out var id) && id.GetString() is { Length: > 0 } s
-            ? ResolveOrThrow(s)
-            : _root!;
+        var hasId = op.TryGetProperty("id", out var id) && id.GetString() is { Length: > 0 } s;
+        var el = hasId ? ResolveOrThrow(id.GetString()!) : _root!;
+        // For an explicit element capture, best-effort scroll it into view first so an off-viewport element
+        // isn't captured clipped (or empty). Skip for the root/desktop screenshot. Never fails the screenshot.
+        if (hasId)
+        {
+            try { el.Patterns.ScrollItem.PatternOrDefault?.ScrollIntoView(); } catch { }
+        }
         // Capture.Element grabs the SCREEN region at the element's bounds — if the app window is occluded by
         // another window (common with attached/background apps), we'd capture the wrong pixels. Bring the
         // element's top-level window to the front first (nova2 parity), then let it finish surfacing/
