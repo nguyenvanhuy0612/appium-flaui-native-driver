@@ -90,11 +90,12 @@ The driver supports the following capabilities:
 | `ms:waitForAppLaunch` | Seconds to wait after launch before searching for the root window. | `0` | `3` |
 | `ms:forcequit` | Force-kill the app process on session deletion. | `false` | `true` |
 | `flaui:backend` | UIA backend: `uia3` (recommended) or `uia2`. | `uia3` | `uia2` |
-| `flaui:connectionTimeout` | UIA `ConnectionTimeout` in ms (anti-hang layer 1). | (sidecar default) | `5000` |
-| `flaui:transactionTimeout` | UIA `TransactionTimeout` in ms (anti-hang layer 1). | (sidecar default) | `5000` |
-| `flaui:operationTimeout` | Per-operation wall-clock watchdog in ms (anti-hang layer 2). | (sidecar default) | `30000` |
+| `flaui:connectionTimeout` | UIA `ConnectionTimeout` in ms (anti-hang layer 1; defaults *below* the watchdog). | `min(20000, operationTimeout−5000)` | `5000` |
+| `flaui:transactionTimeout` | UIA `TransactionTimeout` in ms (anti-hang layer 1; defaults *below* the watchdog). | `min(20000, operationTimeout−5000)` | `5000` |
+| `flaui:operationTimeout` | Per-operation wall-clock watchdog in ms (anti-hang layer 2; also sets the per-op RPC timeout `+5000`). | `30000` | `30000` |
 | `flaui:elementTableMax` | Max number of retained element references. | (sidecar default) | `5000` |
-| `flaui:autoRecycle` | Auto-recycle the sidecar if it becomes unresponsive (anti-hang layer 5). | `true` | `false` |
+| `flaui:idleTimeout` | Sidecar idle self-exit in ms (orphan guard). **By default follows `newCommandTimeout`** (`newCommandTimeout + 120s`), so setting `newCommandTimeout` alone is enough — a long inter-command wait Appium is keeping alive is never cut short. `newCommandTimeout: 0` (infinite) disables it. Set this only to override. | `newCommandTimeout + 120000` | `600000` |
+| `flaui:autoRecycle` | **Opt-in**: silently recycle + re-attach the sidecar on a transport failure. When `false` (default) a dead/unresponsive sidecar **fails the session** (`invalid session id`) so you create a new one. | `false` | `true` |
 | `appium:prerun` | `{ script }` — PowerShell to run before the session starts (requires the `power_shell` insecure feature). | (None) | `{script: '...'}` |
 | `appium:typeDelay` | Delay (ms) after each character typed (does not apply to modifier keys). | `0` | `100` |
 | `appium:releaseModifierKeys` | Release modifier keys after sending keys. | `true` | `true` |
@@ -201,17 +202,24 @@ all_attributes = element.get_attribute('all')
 
 ### Stability & Anti-Hang
 Unlike in-process drivers, every UIA call runs inside a separate sidecar process on a dedicated, cancellable
-STA worker, bounded by five layers of protection:
+STA worker. The timeouts are **nested** so the gentlest layer fires first
+(`UIA ≈20s < watchdog 30s < RPC 35s < hard-deadline 40s`; see [`docs/ANTI-HANG.md`](docs/ANTI-HANG.md)):
 
-1. **UIA `ConnectionTimeout` / `TransactionTimeout`** (`flaui:connectionTimeout` / `flaui:transactionTimeout`).
+1. **UIA `ConnectionTimeout` / `TransactionTimeout`** (`flaui:connectionTimeout` / `flaui:transactionTimeout`) —
+   defaulted *below* the watchdog so a frozen COM call self-aborts before a thread needs poisoning.
 2. **Per-operation wall-clock watchdog** (`flaui:operationTimeout`).
 3. **STA worker poisoning** — a hung worker thread is abandoned and replaced.
 4. **Serialized operation queue** — one UIA call at a time, no cross-talk.
-5. **Sidecar recycle** (`flaui:autoRecycle`) — if the sidecar becomes unresponsive, it is recycled and the
-   session re-attaches.
+5. **Hard-deadline + honest failure** — every RPC settles within the hard-deadline even if the inner layers
+   fail; a dead/unresponsive sidecar then **fails the session** with `invalid session id` (kill the wedged
+   process, tell the client to create a new session). Opt into silent recycle/re-attach with
+   `flaui:autoRecycle: true`.
 
-The net effect: a frozen target app fails *that command* in seconds (not a 60 s hang), and the session and
-Appium server keep working.
+Orphan guard: the sidecar self-exits on parent (Appium) death (stdin-EOF heartbeat) **and** after
+`flaui:idleTimeout` (default 5 min) with no command — so a forgotten session can't leave a ~180 MB process behind.
+
+The net effect: a frozen target app fails *that command* in seconds (not a 60 s hang), the session and Appium
+server keep working, and a truly dead backend ends the session cleanly instead of hanging or silently lying.
 
 ### PowerShell Execution
 Run PowerShell directly from a test. Requires the `power_shell` insecure feature (see

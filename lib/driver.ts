@@ -52,7 +52,8 @@ const constraints = {
   'flaui:transactionTimeout': { isNumber: true }, // UIA TransactionTimeout (ms)
   'flaui:operationTimeout': { isNumber: true }, // per-op watchdog (ms)
   'flaui:elementTableMax': { isNumber: true }, // element registry cap
-  'flaui:autoRecycle': { isBoolean: true }, // layer-5 sidecar recycle (default true)
+  'flaui:idleTimeout': { isNumber: true }, // sidecar idle self-exit (ms; default 300000, 0 disables) — orphan guard (E)
+  'flaui:autoRecycle': { isBoolean: true }, // OPT-IN silent sidecar recycle on death (default FALSE — C)
   // nova2-compat capabilities (accepted; some are advisory no-ops here — see docs/PARITY.md)
   'ms:waitForAppLaunch': { isNumber: true },
   'ms:forcequit': { isBoolean: true },
@@ -154,10 +155,17 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   private operationTimeoutMs?: number;
   /** Single in-flight recycle promise so concurrent failures dedup to one restart (F1). */
   private recyclePromise?: Promise<void>;
+  /** C: once the sidecar dies/wedges, the session is terminal — every op fails fast with this reason. */
+  private sessionDead = false;
+  private deadReason = 'session is no longer valid';
 
-  /** Whether the layer-5 sidecar recycle circuit breaker is enabled (flaui:autoRecycle, default true). */
+  /**
+   * Whether silent sidecar recycle/re-attach is enabled. Default **FALSE** (C): a dead/unresponsive
+   * sidecar fails the session honestly so the client can decide to restart with full knowledge.
+   * Set `flaui:autoRecycle: true` to opt back into the old auto-recycle-and-retry behaviour.
+   */
   private get autoRecycle(): boolean {
-    return this.opts['flaui:autoRecycle'] !== false;
+    return this.opts['flaui:autoRecycle'] === true;
   }
 
   async createSession(
@@ -176,6 +184,14 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     }
     this.sidecarExe = exe;
     this.operationTimeoutMs = this.opts['flaui:operationTimeout'];
+    // E — orphan-guard idle self-exit, by default DERIVED from Appium's own session reaping so that
+    // setting `newCommandTimeout` alone is sufficient: a long inter-command wait that Appium is keeping
+    // alive must never be cut short by the sidecar. We sit just ABOVE newCommandTimeout (a pure backstop
+    // that only fires if Appium itself fails to reap). `flaui:idleTimeout` is an explicit override;
+    // newCommandTimeout=0 (infinite) disables the idle guard entirely (honour "never reap").
+    const idleTimeoutMs =
+      this.opts['flaui:idleTimeout'] ??
+      (this.newCommandTimeoutMs && this.newCommandTimeoutMs > 0 ? this.newCommandTimeoutMs + 120_000 : 0);
     // Build the /session body once so the layer-5 recycle path can replay it (re-attach).
     this.sessionBody = {
       app: this.opts.app,
@@ -192,10 +208,17 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
       transactionTimeout: this.opts['flaui:transactionTimeout'],
       operationTimeout: this.opts['flaui:operationTimeout'],
       elementTableMax: this.opts['flaui:elementTableMax'],
+      idleTimeout: idleTimeoutMs,
     };
-    this.sidecar = new Sidecar({ command: exe, args: [] });
+    // D: the RPC client default timeout sits just ABOVE the sidecar's per-op watchdog (operationTimeout),
+    // so the transport never aborts an op the backend is still legitimately working on.
+    const opTimeout = this.operationTimeoutMs ?? 30_000;
+    this.sidecar = new Sidecar({ command: exe, args: [], rpcTimeoutMs: opTimeout + 5_000 });
     await this.sidecar.start();
-    await this.sidecar.client.session(this.sessionBody);
+    // /session can legitimately take as long as the app-launch wait (ResolveAppRoot loops up to
+    // max(waitForAppLaunch,10)s) — give it that plus a generous buffer instead of the per-op timeout.
+    const launchWaitMs = Math.max((this.opts['ms:waitForAppLaunch'] ?? 0) * 1000, 10_000);
+    await this.sidecar.client.session(this.sessionBody, launchWaitMs + 30_000);
     // nova2-compat: optional settle delay after app launch (seconds).
     const wait = this.opts['ms:waitForAppLaunch'];
     if (typeof wait === 'number' && wait > 0) await new Promise((r) => setTimeout(r, wait * 1000));
@@ -256,31 +279,68 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   }
 
   /**
-   * Anti-hang LAYER 5 (spec §6). Run an op; on a TRANSPORT failure (sidecar dead / connection refused /
-   * /status not ready) — NOT on a structured RpcError, which is a well-formed backend response — recycle
-   * the sidecar once and retry the op a single time. Recycle is deduped via a single restart promise so
-   * concurrent failures collapse to one restart. If recycle/retry fails, the original transport error is
-   * surfaced (mapped to UnknownError by the caller).
+   * Run an op with the anti-hang failure policy (C, spec §6).
    *
-   * Re-attach: the recycle replays the stored /session body. For an `appTopLevelWindow` session that
-   * re-attaches by HWND; for an `app` session it relaunches the app. Disabled when flaui:autoRecycle=false.
+   * A clean {@link RpcError} means the sidecar ANSWERED (it is alive) — including a watchdog `"timeout"`
+   * for a single frozen op; the session survives and the error propagates to the W3C mapping.
+   *
+   * A TRANSPORT failure (connection refused → process gone, or the hard-deadline firing → the backend is
+   * wedged with every inner timeout having failed) is terminal by default: we kill the dead/wedged sidecar
+   * (so it cannot linger as an orphan) and mark the SESSION dead, so this and every later command fails
+   * fast with `InvalidSessionId` — the client decides to start a new session, with full knowledge.
+   *
+   * Opting into `flaui:autoRecycle: true` restores the old behaviour: recycle the sidecar (replaying the
+   * stored /session body to re-attach/relaunch) and retry the op once, deduped via a single restart promise.
    */
   private async ensureHealthyAndOp<T = unknown>(o: BackendOp): Promise<T> {
-    try {
-      return await this.sidecar!.client.op<T>(o);
-    } catch (e) {
-      // Only TRANSPORT errors are recoverable here. A RpcError means the sidecar answered with a clean
-      // error envelope (it's alive) — let it propagate to the W3C mapping.
-      if (e instanceof RpcError || !this.autoRecycle) throw e;
-      const recovered = await this.tryRecycle();
-      if (!recovered) {
-        throw new errors.UnknownError(
-          `sidecar transport failed and could not be recycled: ${(e as Error).message}`,
-        );
-      }
-      // Retry exactly ONCE against the fresh sidecar.
-      return await this.sidecar!.client.op<T>(o);
+    if (this.sessionDead) throw new errors.NoSuchDriverError(this.deadReason);
+    if (this.sidecar!.hasExited && !this.autoRecycle) {
+      this.markDead(`sidecar process exited (${this.sidecar!.exitReason})`);
     }
+    const rpcTimeout = this.rpcTimeoutFor(o);
+    try {
+      return await this.sidecar!.client.op<T>(o, rpcTimeout);
+    } catch (e) {
+      if (e instanceof RpcError) throw e; // backend answered → session alive
+      if (this.autoRecycle) {
+        const recovered = await this.tryRecycle();
+        if (!recovered) {
+          throw new errors.UnknownError(
+            `sidecar transport failed and could not be recycled: ${(e as Error).message}`,
+          );
+        }
+        return await this.sidecar!.client.op<T>(o, rpcTimeout); // retry once against the fresh sidecar
+      }
+      // Default (C): the backend is gone or unresponsive — kill it and end the session honestly.
+      try {
+        await this.sidecar!.stop();
+      } catch {
+        /* presumed dead */
+      }
+      const how = this.sidecar!.hasExited ? `exited (${this.sidecar!.exitReason})` : 'became unresponsive';
+      this.markDead(`sidecar backend ${how}: ${(e as Error).message}`);
+    }
+  }
+
+  /** Mark the session terminally dead and throw the W3C "invalid session id" error (C). Never returns. */
+  private markDead(reason: string): never {
+    this.sessionDead = true;
+    this.deadReason = `${reason} — this session is no longer valid; create a new session.`;
+    throw new errors.NoSuchDriverError(this.deadReason);
+  }
+
+  /**
+   * Per-op RPC timeout (D, nested timeouts). UIA ops get `operationTimeout + grace` so the transport sits
+   * just above the sidecar's per-op watchdog. PowerShell runs out-of-scheduler and may legitimately run
+   * longer than the watchdog, so it gets its own (per-call / session / 60s default) timeout + grace.
+   */
+  private rpcTimeoutFor(o: BackendOp): number {
+    const grace = 5_000;
+    if (o.op === 'powershell') {
+      const t = (o as { timeoutMs?: number }).timeoutMs ?? this.opts.powerShellCommandTimeout ?? 60_000;
+      return t + grace;
+    }
+    return (this.operationTimeoutMs ?? 30_000) + grace;
   }
 
   /** Recycle the sidecar process and re-open the backend session (deduped). Returns true on success. */
@@ -511,8 +571,26 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
 
   // ── W3C Actions API (subset: sequential sources; mouse pointer + key) ─────────────────────
   private pointerPos = { x: 0, y: 0 };
+  /** Cached top-left of the session root window, used to make `viewport`-origin coords window-relative
+   * (W3C "viewport" analog for a window-rooted session). Memoized per performActions() call. */
+  private viewportOrigin?: { x: number; y: number };
+
+  /** Top-left (screen coords) of the session root window — the origin for `viewport` pointer coords.
+   * For a desktop (`app:'Root'`) session this is ~(0,0), so coords stay screen-absolute. */
+  private async viewportOffset(): Promise<{ x: number; y: number }> {
+    if (!this.viewportOrigin) {
+      try {
+        const r = await this.getWindowRect();
+        this.viewportOrigin = { x: r.x ?? 0, y: r.y ?? 0 };
+      } catch {
+        this.viewportOrigin = { x: 0, y: 0 };
+      }
+    }
+    return this.viewportOrigin;
+  }
 
   async performActions(actions: unknown[]): Promise<void> {
+    this.viewportOrigin = undefined; // refresh the window origin once per call (window may have moved)
     for (const seq of (actions ?? []) as Array<Record<string, any>>) {
       if (seq.type === 'pause' || seq.type === 'none') {
         for (const a of seq.actions ?? []) {
@@ -546,11 +624,17 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
             x += this.pointerPos.x;
             y += this.pointerPos.y;
           } else if (typeof origin === 'object' && origin !== null) {
-            // element origin: W3C offsets are from the element CENTER.
+            // element origin: W3C offsets are from the element CENTER (BoundingRectangle is screen coords).
             const elId = (origin as Record<string, string>)[W3C_ELEMENT_KEY] ?? (origin as any).ELEMENT;
             const r = await this.getElementRect(elId);
             x += Math.round(r.x + r.width / 2);
             y += Math.round(r.y + r.height / 2);
+          } else {
+            // viewport origin (default): coords are relative to the session ROOT WINDOW's top-left, not the
+            // raw screen — so (x,y) hit the same spot regardless of where the (attached) window sits.
+            const off = await this.viewportOffset();
+            x += off.x;
+            y += off.y;
           }
           this.pointerPos = { x, y };
           await this.op(inputOp('move', { x, y }));

@@ -5,6 +5,50 @@ project's evolution. Newest first.
 
 ---
 
+## 2026-06-04 — v0.1.0-beta.15: stability hardening — sidecar-death fail-fast (C), nested timeouts (D), idle self-exit (E)
+
+> NOT yet published — built/tested locally (TS 123 unit green); needs the C# build + publish from .38.
+
+Implements the agreed stability spec from `docs/ANTI-HANG.md` (items C, D, E). Validated against how
+established projects handle the same problems (W3C WebDriver / ChromeDriver / Appium; gRPC + Google SRE
+deadline nesting; Bazel & tsserver orphan guards) — design confirmed, no changes needed.
+
+- **C — sidecar death/wedge → FAIL the session (no silent recycle).** `Sidecar` now keeps a persistent
+  `proc.on('exit')` listener (`hasExited`/`exitReason`). On a TRANSPORT failure (ECONNREFUSED = process gone,
+  or the hard-deadline firing = backend wedged with every inner timeout having failed) the driver `stop()`s
+  the dead/wedged process (so it can't orphan) and throws `NoSuchDriverError` → W3C **"invalid session id"
+  (404)**; the session latches dead so every later command fails fast too. This is the W3C/ChromeDriver/Appium
+  contract (dead session → 404, never auto-restart). The old silent auto-recycle + re-attach is now **opt-in**:
+  `flaui:autoRecycle` default flipped `true → false`.
+- **D — nested timeouts.** Was: UIA 60s, watchdog 30s, RpcClient a *fixed* 30s (not wired). Now nested
+  `UIA (min(20s, opTimeout−5s)) < watchdog (operationTimeout, 30s) < RpcClient (operationTimeout+5s, 35s) <
+  hard-deadline (+5s, 40s)`. The UIA timeout below the watchdog lets a frozen COM call self-abort *before* the
+  watchdog has to poison the STA thread (graceful path; poison is the backstop). RpcClient timeout is now
+  **per-op** (`driver.rpcTimeoutFor`): UIA ops get `operationTimeout+5s`, PowerShell keeps its own (longer)
+  budget so a legit long script isn't aborted by the transport. Fixes the latent bug where a >30s
+  `operationTimeout` (or any long PowerShell) was prematurely killed by the fixed 30s RpcClient timeout.
+- **E — sidecar idle self-exit (orphan guard).** New independent idle watcher in `Program.cs`: if no `/op`
+  or `/session` arrives within the idle bound, the sidecar self-exits (best-effort closing a launched — never
+  attached — app first). Complements the stdin-EOF heartbeat (instant parent-death) — the Bazel/tsserver
+  dual-mechanism. **The idle bound DEFAULTS to `newCommandTimeout + 120s`** (computed in `driver.ts` from
+  `this.newCommandTimeoutMs`), so it sits just ABOVE Appium's own session reaping: a user who bumps
+  `newCommandTimeout` (e.g. to 600s+ for a long-running app step) is *not* cut short by the sidecar — setting
+  `newCommandTimeout` alone is sufficient, no extra timeout to configure. `newCommandTimeout: 0` (infinite)
+  disables the idle guard. `flaui:idleTimeout` is an explicit power-user override. (Fixed after user feedback:
+  the first cut used a fixed 5-min idle that would have killed a >5-min inter-command wait — wrong.)
+- **W3C Actions `viewport`-origin coords are now WINDOW-relative.** Was: pointerMove with the default
+  `viewport` origin passed `x,y` straight through as **absolute screen coords** (`OpInterpreter` returns
+  `Point(x,y)` with no element id), so clicking by coordinate missed when the (attached) app window wasn't at
+  screen (0,0). Now `performPointerSeq` translates `viewport` coords by the session **root window's top-left**
+  (`getWindowRect`, memoized per `performActions` call); element- and pointer-origin unchanged. A desktop
+  (`app:'Root'`) session has a ~(0,0) origin so coords stay screen-absolute. Matches the W3C "viewport" intent
+  for a window-rooted session.
+- New caps: `flaui:idleTimeout` (ms; default derives from `newCommandTimeout`). `flaui:autoRecycle` default
+  is now **false**.
+- Tests: +2 TS unit (RpcClient per-op timeout override; `Sidecar` exit tracking) → **123 passing**.
+- Still OPEN: **B** (make the in-process watchdog fire reliably for the SecureAge-style freeze — needs a
+  dedicated repro + instrumentation session) and **F** (optional concurrency cap + stray-process reaper).
+
 ## 2026-06-04 — 🏁 v0.1.0-beta.8: getAttribute('all') inspect parity (supported-pattern props + ClickablePoint)
 
 > **Published to npm** (from .44, from-source build; `beta` + `latest` → `0.1.0-beta.8`, win-x64).

@@ -42,10 +42,11 @@ selected automatically (`process.arch`) but are cross-built on x64 — declared,
 | `appium:appWorkingDir` | 🟡 | working directory for the launched app |
 | `appium:shouldCloseApp` | ✅ | default `true`; on session end close the launched app (or the attached window) |
 | `flaui:backend` | ✅ uia3 / 🟡 uia2 (experimental) | UIA backend selection. **uia2 is experimental:** the anti-hang layer-1 timeouts (`ConnectionTimeout`/`TransactionTimeout`) are a UIA3-only property surface; under uia2 they do not apply, so uia2 falls back on layers 2–5 only. |
-| `flaui:connectionTimeout` / `flaui:transactionTimeout` | 🟡 | UIA timeouts (ms); UIA3 only. Defaults 60000. |
-| `flaui:operationTimeout` | 🟡 | per-op watchdog (ms); default 30000. |
+| `flaui:connectionTimeout` / `flaui:transactionTimeout` | 🟡 | UIA timeouts (ms); UIA3 only. Default `min(20000, operationTimeout−5000)` — nested just below the watchdog so a frozen COM call self-aborts first. |
+| `flaui:operationTimeout` | 🟡 | per-op watchdog (ms); default 30000. Also sets the per-op RPC timeout (`+5000`). |
 | `flaui:elementTableMax` | 🟡 | element registry cap; default 10000. |
-| `flaui:autoRecycle` | 🟡 | layer-5 sidecar recycle on transport failure; default `true`. |
+| `flaui:idleTimeout` | 🟡 | sidecar idle self-exit (ms), orphan guard. **Default = `newCommandTimeout + 120000`** so just setting `newCommandTimeout` is enough (a long wait Appium keeps alive is never cut). `newCommandTimeout: 0` (infinite) disables it. Override only for power users. |
+| `flaui:autoRecycle` | 🟡 | **opt-in** silent sidecar recycle + re-attach on transport failure; default `false`. When off (default), a dead/wedged sidecar **fails the session** (`invalid session id`, 404) — create a new session. |
 | `ms:waitForAppLaunch` | ✅ | settle delay (seconds) after launch |
 | `appium:prerun` | 🟡 | `{script}`/`{command}` PowerShell at session start. **Gated** — requires the `flauinative:power_shell` insecure feature, or session creation fails with a feature error (ADR-014). |
 | `appium:includeContextElementInSearch` | ✅ | default `true`: searches include the context element itself |
@@ -96,7 +97,7 @@ evaluate in TS over bulk-fetched attributes. Positional semantics (`//X[1]` vs `
 | `GET /window` · `/window/handles` | getWindowHandle(s) | ✅ |
 | `GET/POST /window/rect` | get/setWindowRect (TransformPattern) | ✅ |
 | `POST /window/maximize` · `/minimize` | maximize/minimizeWindow | ✅ |
-| `POST /session/:id/actions` · `DELETE` | performActions / releaseActions — pointer (move/down/up; viewport/pointer/element origins) + key + pause. Key map (`W3C_KEY_TO_VK`) covers printables, the original non-printables, **plus Meta/Windows (U+E03D→VK 0x5B), Home/End/PageUp/PageDown, and F1–F12**; Shift+printable yields uppercase. | ✅ |
+| `POST /session/:id/actions` · `DELETE` | performActions / releaseActions — pointer (move/down/up; viewport/pointer/element origins) + key + pause. **`viewport`-origin coords are relative to the session ROOT WINDOW's top-left** (not raw screen), so click-by-coordinate lands correctly wherever the (attached) window sits; element-origin offsets are from the element center; a desktop `app:'Root'` session keeps screen-absolute coords. Key map (`W3C_KEY_TO_VK`) covers printables, the original non-printables, **plus Meta/Windows (U+E03D→VK 0x5B), Home/End/PageUp/PageDown, and F1–F12**; Shift+printable yields uppercase. | ✅ |
 | `POST /session/:id/execute/sync` | execute → extension commands (§5) & scripts (§6) | ✅ |
 | `POST /appium/device/push_file` · `pull_file` · `pull_folder` | pushFile / pullFile / pullFolder (base64; folder → ZIP) | ✅ |
 | `GET /window_handle` (focused el), `getDeviceTime` | — | ⬜ |
@@ -157,20 +158,25 @@ box you own). They are OFF unless explicitly scoped via the config above.
 
 ## 7. Stability architecture
 
-Five-layer anti-hang:
-1. **UIA3 Connection/TransactionTimeout** (UIA3 only; see uia2 note in §1).
+Timeouts are **nested** so the most graceful layer fires first (see `docs/ANTI-HANG.md` for the full map):
+`UIA (≈20s) < per-op watchdog (30s) < RPC client (35s) < TS hard-deadline (40s)`.
+
+1. **UIA3 Connection/TransactionTimeout** (UIA3 only; see uia2 note in §1) — defaulted *below* the watchdog so
+   a frozen COM call self-aborts before the watchdog has to poison a thread.
 2. **Per-op watchdog** — wall-clock timeout on the UIA worker; fail-fast, the Appium session survives.
 3. **STA worker poisoning & replacement** — a frozen COM call abandons its thread; a fresh STA worker
-   takes over. Past a small budget of poisoned threads the scheduler raises a fatal signal → layer 5.
+   takes over. Past a small budget of poisoned threads the scheduler raises a fatal signal.
 4. **Serial queue / backpressure** — the scheduler serializes in-flight ops (`SemaphoreSlim(1,1)`), so
    only one op runs at a time as designed.
-5. **Sidecar recycle (circuit breaker)** — on a **transport failure** (sidecar dead / connection refused),
-   the TS layer recycles the sidecar process (deduped via a single restart promise), replays the stored
-   `/session` body to **re-attach** (relaunch the app, or re-attach by `appTopLevelWindow`), then retries
-   the failed op **once**; a second failure surfaces a clear `unknown error`. Toggle with `flaui:autoRecycle`.
+5. **TS hard-deadline + honest session failure** — every RPC settles within the per-op hard-deadline even if
+   the inner layers fail. On a **transport failure** (sidecar dead / connection refused / hard-deadline), the
+   default is to **fail the session**: the wedged/dead sidecar is killed and the command returns
+   `invalid session id` (404) — and latches, so the client knows to create a new session. Opt into the old
+   behaviour (recycle the sidecar, replay the `/session` body to re-attach, retry once) with
+   `flaui:autoRecycle: true`.
 
 Plus: self-contained sidecar exe (no .NET/Dev-Mode for users), stdout port handshake + stdin-EOF heartbeat
-(no orphans). Layers 1–4 + the scheduler are unit-tested; layer-5 recycle is unit-tested at the transport
+**and an idle self-exit** (`flaui:idleTimeout`, default 5 min) so a forgotten session can't leak a sidecar. Layers 1–4 + the scheduler are unit-tested; layer-5 recycle is unit-tested at the transport
 seam. **✅ Proven on Windows by a frozen-app hang-injection E2E** (`tests/e2e/11-hang-injection.e2e.spec.ts`):
 against a WinForms app whose UI thread is wedged 60 s, an op returns W3C `timeout` in ~5 s (watchdog budget),
 `/status` stays 200, `DELETE` is bounded (app-Kill fallback), and a fresh session recovers. The 30-min

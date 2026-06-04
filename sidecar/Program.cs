@@ -27,6 +27,14 @@ var forceQuit = false;            // ms:forcequit — kill instead of graceful c
 string? appPath = null;            // remembered for `windows: launchApp`
 var opTimeout = TimeSpan.FromSeconds(30); // per-op watchdog (flaui:operationTimeout, F5)
 
+// E — orphan guard: self-exit after this much inactivity, independent of the parent heartbeat. Bounds
+// leaked sidecars when clients open sessions and never close them. Default 5 min; ≤0 disables. Set from
+// flaui:idleTimeout at /session. lastActivity is bumped by Touch() on every /session and /op.
+var idleTimeout = TimeSpan.FromMinutes(5);
+var activityLock = new object();
+var lastActivity = DateTime.UtcNow;
+void Touch() { lock (activityLock) lastActivity = DateTime.UtcNow; }
+
 // Read an optional millisecond cap from the session caps.
 static TimeSpan? Ms(JsonElement caps, string name) =>
     caps.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number
@@ -37,6 +45,7 @@ app.MapGet("/status", () => Results.Json(new { ok = true, ready = true }));
 
 app.MapPost("/session", async (HttpRequest req) =>
 {
+  Touch();
   // Body parse + setup are guarded so a malformed body / bad cap yields the {ok:false,error} envelope
   // rather than a raw Kestrel 500 (F18).
   JsonElement caps;
@@ -46,11 +55,18 @@ app.MapPost("/session", async (HttpRequest req) =>
     caps = doc.RootElement.Clone();
     var backend = caps.TryGetProperty("backend", out var b) ? b.GetString() : "uia3";
     automation = backend == "uia2" ? new UIA2Automation() : new UIA3Automation();
-    // anti-hang layer 1 — UIA-level timeouts (flaui:connectionTimeout / flaui:transactionTimeout, F5).
-    automation.ConnectionTimeout = Ms(caps, "connectionTimeout") ?? TimeSpan.FromSeconds(60);
-    automation.TransactionTimeout = Ms(caps, "transactionTimeout") ?? TimeSpan.FromSeconds(60);
-    // per-op watchdog (flaui:operationTimeout, F5).
+    // per-op watchdog (flaui:operationTimeout, F5). Read FIRST so the UIA timeouts can nest below it.
     opTimeout = Ms(caps, "operationTimeout") ?? TimeSpan.FromSeconds(30);
+    // anti-hang layer 1 — UIA-level timeouts (flaui:connectionTimeout / flaui:transactionTimeout, F5).
+    // D (nested timeouts): default these just BELOW the watchdog so a frozen provider's COM call
+    // self-aborts and returns an error *before* the watchdog has to poison the STA worker (the graceful
+    // path). Capped at 20s but always ≤ opTimeout-5s so the nesting holds even for a small operationTimeout.
+    var uiaDefault = TimeSpan.FromMilliseconds(
+        Math.Max(1000, Math.Min(20_000, opTimeout.TotalMilliseconds - 5_000)));
+    automation.ConnectionTimeout = Ms(caps, "connectionTimeout") ?? uiaDefault;
+    automation.TransactionTimeout = Ms(caps, "transactionTimeout") ?? uiaDefault;
+    // E — orphan guard idle self-exit (flaui:idleTimeout, ms; ≤0 disables; default 5 min).
+    idleTimeout = Ms(caps, "idleTimeout") ?? TimeSpan.FromMinutes(5);
     // element registry cap (flaui:elementTableMax, F5) — rebuild with the requested size.
     if (caps.TryGetProperty("elementTableMax", out var etm) && etm.ValueKind == JsonValueKind.Number)
         registry = new ElementRegistry(etm.GetInt32());
@@ -240,6 +256,7 @@ int? FindPidByExe(string nameOrPath)
 
 app.MapPost("/op", async (HttpRequest req) =>
 {
+    Touch();
     // Guard the body parse + op-name extraction (F18): malformed JSON or a missing `op` field must map to
     // a clean W3C error envelope, never a raw 500.
     JsonElement op;
@@ -377,6 +394,27 @@ _ = Task.Run(async () =>
     var buf = new byte[1];
     try { while (await stdin.ReadAsync(buf) > 0) { } } catch { /* ignore */ }
     Environment.Exit(0);
+});
+
+// E — orphan guard: independent idle watcher. If no /session or /op arrives within idleTimeout, the
+// sidecar self-exits so a leaked/forgotten session can't linger (~180MB) regardless of the parent's
+// newCommandTimeout config. Best-effort closes an app WE launched (mirrors shouldCloseApp); never an
+// attached app. The TS side sees the exit and fails the (now dead) session honestly on the next command.
+_ = Task.Run(async () =>
+{
+    while (true)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(15));
+        if (idleTimeout <= TimeSpan.Zero) continue;
+        TimeSpan idle;
+        lock (activityLock) idle = DateTime.UtcNow - lastActivity;
+        if (idle < idleTimeout) continue;
+        try { if (!attached && shouldCloseApp && launchedApp is not null) CloseOrKillLaunchedApp(); }
+        catch { /* best effort */ }
+        Console.Error.WriteLine(
+            $"[sidecar] idle {idle.TotalSeconds:0}s exceeded {idleTimeout.TotalSeconds:0}s — self-exit (orphan guard)");
+        Environment.Exit(0);
+    }
 });
 
 await app.WaitForShutdownAsync();

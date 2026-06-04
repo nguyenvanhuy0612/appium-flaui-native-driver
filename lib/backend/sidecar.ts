@@ -5,6 +5,8 @@ export interface SidecarOptions {
   command: string;
   args: string[];
   startupTimeoutMs?: number;
+  /** Default RPC timeout (ms) for the client; the driver wires this to operationTimeout+grace (D). */
+  rpcTimeoutMs?: number;
 }
 
 /** Owns the sidecar child process: spawn, port handshake, health, and clean shutdown. */
@@ -12,9 +14,24 @@ export class Sidecar {
   private proc?: ChildProcessWithoutNullStreams;
   baseUrl = '';
   client!: RpcClient;
+  /** Set by the persistent exit listener once the child process actually dies (any cause). */
+  private exited = false;
+  private exitInfo?: { code: number | null; signal: NodeJS.Signals | null };
 
   get isRunning(): boolean {
     return !!this.proc && this.proc.exitCode === null;
+  }
+
+  /** True once the child process has died (C: sidecar-death → fail session). */
+  get hasExited(): boolean {
+    return this.exited;
+  }
+
+  /** Human-readable exit reason for error messages (e.g. "code 3" / "signal SIGKILL"). */
+  get exitReason(): string {
+    if (!this.exited) return 'running';
+    if (this.exitInfo?.signal) return `signal ${this.exitInfo.signal}`;
+    return `code ${this.exitInfo?.code ?? 'unknown'}`;
   }
 
   constructor(private opts: SidecarOptions) {}
@@ -46,7 +63,15 @@ export class Sidecar {
     });
 
     this.baseUrl = `http://127.0.0.1:${port}`;
-    this.client = new RpcClient(this.baseUrl);
+    this.client = new RpcClient(this.baseUrl, this.opts.rpcTimeoutMs);
+
+    // Persistent exit listener (C): record death from ANY cause (crash, idle self-exit, kill) so the
+    // driver can fail the session honestly instead of hanging or silently restarting. This is separate
+    // from the one-shot startup listener above (which only guards the port handshake).
+    proc.on('exit', (code, signal) => {
+      this.exited = true;
+      this.exitInfo = { code, signal };
+    });
 
     // Wait until /status is ready (bounded).
     const deadline = Date.now() + 5_000;

@@ -19,4 +19,14 @@ describe('Sidecar process manager', () => {
     await sc.stop();
     expect(sc.isRunning).to.equal(false);
   });
+
+  it('C: tracks process death (hasExited / exitReason)', async () => {
+    const sc = new Sidecar({ command: process.execPath, args: [FAKE] });
+    await sc.start();
+    expect(sc.hasExited, 'alive after start').to.equal(false);
+    expect(sc.exitReason).to.equal('running');
+    await sc.stop();
+    expect(sc.hasExited, 'dead after stop').to.equal(true);
+    expect(sc.exitReason).to.match(/code|signal/);
+  });
 });

@@ -90,6 +90,31 @@ describe('RpcClient', () => {
     await new Promise<void>((r) => htmlServer.close(() => r()));
   });
 
+  it('D: a per-call timeout overrides the instance default (slow op aborts as transport, not RpcError)', async () => {
+    const slow = http.createServer((_req, res) => {
+      setTimeout(() => {
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ ok: true, value: {} }));
+      }, 500);
+    });
+    await new Promise<void>((r) => slow.listen(0, '127.0.0.1', () => r()));
+    const slowBase = `http://127.0.0.1:${(slow.address() as AddressInfo).port}`;
+    // Instance default is generous; the tight per-call 100ms wins and aborts the in-flight fetch.
+    const client = new RpcClient(slowBase, 60_000);
+    let caught: unknown;
+    try {
+      await client.op({ op: 'source', startId: 'root' }, 100);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught, 'should reject').to.exist;
+    expect(caught, 'a transport abort is NOT a clean RpcError').to.not.be.instanceOf(RpcError);
+    // A generous per-call timeout lets the very same slow op succeed.
+    const ok = await client.op({ op: 'source', startId: 'root' }, 2_000);
+    expect(ok).to.deep.equal({});
+    await new Promise<void>((r) => slow.close(() => r()));
+  });
+
   it('F18: 2xx-but-non-JSON body -> RpcError("unknown error")', async () => {
     const garbageServer = http.createServer((_req, res) => {
       res.statusCode = 200;

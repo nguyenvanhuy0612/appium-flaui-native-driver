@@ -20,14 +20,14 @@ export class RpcClient {
     }
   }
 
-  async op<T = unknown>(op: BackendOp): Promise<T> {
-    const res = (await this.fetchJson('POST', '/op', op)) as BackendResult<T>;
+  async op<T = unknown>(op: BackendOp, timeoutMs?: number): Promise<T> {
+    const res = (await this.fetchJson('POST', '/op', op, timeoutMs)) as BackendResult<T>;
     if (res.ok) return res.value;
     throw new RpcError(res.error.type, res.error.message);
   }
 
-  async session(body: Record<string, unknown>): Promise<{ rootId: string }> {
-    const res = (await this.fetchJson('POST', '/session', body)) as BackendResult<{ rootId: string }>;
+  async session(body: Record<string, unknown>, timeoutMs?: number): Promise<{ rootId: string }> {
+    const res = (await this.fetchJson('POST', '/session', body, timeoutMs)) as BackendResult<{ rootId: string }>;
     if (res.ok) return res.value;
     throw new RpcError(res.error.type, res.error.message);
   }
@@ -38,21 +38,25 @@ export class RpcClient {
     if (!res.ok) throw new RpcError(res.error.type, res.error.message);
   }
 
-  private async fetchJson(method: string, path: string, body?: unknown): Promise<unknown> {
+  private async fetchJson(method: string, path: string, body?: unknown, timeoutMs?: number): Promise<unknown> {
+    // Per-call timeout (D, nested timeouts): the caller passes operationTimeout+grace for UIA ops, or a
+    // larger value for long ops like PowerShell, so the RPC layer always sits just ABOVE the sidecar's own
+    // per-op watchdog (never aborts a legitimately-running op before the backend answers).
+    const callTimeout = timeoutMs ?? this.timeoutMs;
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), this.timeoutMs);
+    const t = setTimeout(() => ctrl.abort(), callTimeout);
     // HARD backstop deadline (does NOT rely on the AbortController). A fetch waiting on a half-open
     // connection — sidecar process died/froze mid-request — has been observed in the wild NOT to honour
     // the abort signal, leaving this promise pending forever. Because the driver serialises commands per
     // session, one never-settling RPC wedges the WHOLE command queue indefinitely. Promise.race against an
     // independent timer guarantees the RPC always settles. We reject with a plain Error (NOT an RpcError),
-    // so the caller treats it as a TRANSPORT failure and recycles the sidecar (a clean RpcError would be
+    // so the caller treats it as a TRANSPORT failure and fails the session (a clean RpcError would be
     // taken as a live backend response). Grace of 5s lets the sidecar's own op-watchdog answer first.
     let hardTimer: ReturnType<typeof setTimeout> | undefined;
     const hardDeadline = new Promise<never>((_, reject) => {
       hardTimer = setTimeout(
-        () => reject(new Error(`sidecar RPC exceeded ${this.timeoutMs + 5000}ms (${method} ${path}) — transport hang`)),
-        this.timeoutMs + 5000,
+        () => reject(new Error(`sidecar RPC exceeded ${callTimeout + 5000}ms (${method} ${path}) — transport hang`)),
+        callTimeout + 5000,
       );
     });
     const work = (async () => {
