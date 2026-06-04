@@ -64,6 +64,7 @@ app.MapPost("/session", async (HttpRequest req) =>
     return await RunOp(() =>
     {
         FlaUI.Core.AutomationElements.AutomationElement root;
+        var bringToFront = true; // foreground the app at session start (launch/attach); cleared for 'Root'.
         // How long to wait for the app's top-level window to surface (ms:waitForAppLaunch, min 10s).
         var rootWait = TimeSpan.FromSeconds(
             caps.TryGetProperty("waitForAppLaunch", out var wfa) && wfa.ValueKind == JsonValueKind.Number
@@ -98,6 +99,7 @@ app.MapPost("/session", async (HttpRequest req) =>
         {
             // Desktop session: the whole desktop tree is the root (nova2's `app: 'Root'`).
             root = automation!.GetDesktop();
+            bringToFront = false; // no single app window to foreground for a whole-desktop session
         }
         else
         {
@@ -130,7 +132,7 @@ app.MapPost("/session", async (HttpRequest req) =>
                 }
             }
         }
-        return interp!.OpenSession(root);
+        return interp!.OpenSession(root, bringToFront);
     });
 });
 
@@ -280,7 +282,7 @@ object HandleApp(JsonElement op)
             if (string.IsNullOrEmpty(appPath)) throw new ArgumentException("no app was configured at session start");
             launchedApp = Application.Launch(appPath);
             var root = ResolveAppRoot(launchedApp.ProcessId, TimeSpan.FromSeconds(10));
-            return interp!.OpenSession(root); // re-root the session on the relaunched app (outermost window)
+            return interp!.OpenSession(root, true); // re-root + foreground the relaunched app (outermost window)
         }
         case "close":
             if (launchedApp is not null) CloseOrKillLaunchedApp();

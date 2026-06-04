@@ -25,9 +25,13 @@ public sealed class OpInterpreter
         _registry = registry;
     }
 
-    public object OpenSession(AutomationElement root)
+    public object OpenSession(AutomationElement root, bool bringToFront = false)
     {
         _root = root;
+        // For app (launch/attach) sessions, bring the app's window to the front at session start — same
+        // basic activation as click/screenshot — so the app you're automating is visible & input-ready.
+        // Skipped for the whole-desktop ('Root') session (no app window to foreground).
+        if (bringToFront) BasicBringOnTop(root);
         return new { rootId = _registry.Register(root) };
     }
 
