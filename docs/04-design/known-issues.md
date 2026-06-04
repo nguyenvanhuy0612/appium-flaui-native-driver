@@ -1,5 +1,7 @@
 # Known Issues & Open Items
 
+*Design · open-issue tracker · updated 2026-06-04*
+
 Standalone tracker for open anti-hang items, capability gaps, and roadmap work. Timeout values and the full
 anti-hang design live in [stability](../02-architecture/stability.md) — this page only tracks what is *not*
 yet done and links there for detail.

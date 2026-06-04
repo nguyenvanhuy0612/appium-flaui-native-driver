@@ -1,5 +1,7 @@
 # Parity Matrix — novawindows2 → FlaUINative *(historical reference)*
 
+*Archived — frozen historical snapshot. Kept for reference; links may point to docs that have since moved.*
+
 > **Note:** FlaUINative is a standalone W3C-first driver; nova2 served as a reference during bring-up.
 > The CANONICAL, maintained API/status table is [`FUNCTIONS.md`](./FUNCTIONS.md). This file is kept as a
 > snapshot of the compatibility analysis.

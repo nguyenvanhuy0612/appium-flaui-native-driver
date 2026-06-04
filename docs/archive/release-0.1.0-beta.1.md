@@ -1,5 +1,7 @@
 # Release Notes — v0.1.0-beta.1 (2026-06-03)
 
+*Archived — frozen historical snapshot. Kept for reference; links may point to docs that have since moved.*
+
 First beta of **FlaUINative**, a standalone, W3C-first Appium 3 driver for Windows UI automation backed by a
 compiled C# FlaUI (UIA3) sidecar. **→ Start here: [`BETA.md`](./BETA.md).**
 

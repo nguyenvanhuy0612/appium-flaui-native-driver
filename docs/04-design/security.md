@@ -1,5 +1,7 @@
 # Security
 
+*Design · threat model · updated 2026-06-04*
+
 This page documents the driver's threat model and security posture. The short version: the posture
 is **permissive by design**, because the driver targets isolated, low-value VM environments. See
 [ADR-015](./decisions.md#adr-015--security-posture-permissive-by-default-never-trade-a-feature-for-strictness).

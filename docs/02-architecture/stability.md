@@ -1,5 +1,7 @@
 # Stability — Anti-Hang & Timeouts
 
+*Architecture · single source of truth for timeouts & anti-hang · updated 2026-06-04*
+
 > **This file is the single source of truth for every timeout value and the anti-hang design.**
 > Other docs link here instead of restating numbers. For the op path through the layers see
 > [request flow](./request-flow.md); for open gaps and the OPEN item B see

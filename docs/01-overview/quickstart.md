@@ -1,5 +1,7 @@
 # Quickstart
 
+*Overview · how-to · updated 2026-06-04*
+
 Get from zero to a first automated interaction. For the full capability list see
 [capabilities](../03-reference/capabilities.md); for the command surface see
 [Appium API reference](../03-reference/appium-api.md).

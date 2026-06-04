@@ -1,5 +1,7 @@
 # Introduction
 
+*Overview · updated 2026-06-04*
+
 **appium-flaui-native-driver** is an [Appium 3](https://appium.io) driver for **Windows desktop
 UI automation**. It drives Universal Windows Platform (UWP), Windows Forms, WPF, and classic Win32
 apps on Windows 10 and later. The driver itself is TypeScript; the actual UI Automation runs in a

@@ -1,5 +1,7 @@
 # Subagent Orchestration
 
+*Internal · updated 2026-06-04*
+
 This project is built largely by **orchestrating subagents** (the Claude `Agent` tool) rather than one long
 linear session. This document explains the roles, the conventions that keep parallel agents from colliding,
 and the non-negotiable verification rule. It reflects how the work is *actually* run, not an aspiration.

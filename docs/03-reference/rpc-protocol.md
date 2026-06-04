@@ -1,5 +1,7 @@
 # RPC Protocol — the TS ↔ C# seam
 
+*Reference · canonical TS↔C# RPC contract · updated 2026-06-04*
+
 > **Canonical** wire contract between the TypeScript driver and the C# FlaUI sidecar. Defined in
 > code by [`lib/backend/ops.ts`](../../lib/backend/ops.ts) (request/response types) and
 > [`sidecar/Program.cs`](../../sidecar/Program.cs) (endpoints + error map). This is the single source

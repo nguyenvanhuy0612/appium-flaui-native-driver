@@ -1,5 +1,7 @@
 # Capabilities — session reference
 
+*Reference · updated 2026-06-04*
+
 > Complete list of every capability the FlaUINative driver accepts, defined in code by the
 > `constraints` object in [`lib/driver.ts`](../../lib/driver.ts) — the single source of truth for
 > capability names and types. W3C clients prefix non-standard caps with the `appium:` vendor

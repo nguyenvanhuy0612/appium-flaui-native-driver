@@ -1,5 +1,7 @@
 # Clean reinstall (Windows test boxes)
 
+*Operations · updated 2026-06-04*
+
 How to wipe and reinstall the driver cleanly. This is **faster and cleaner than
 `appium driver uninstall`**, which is slow and leaves extra files behind in `.appium`.
 

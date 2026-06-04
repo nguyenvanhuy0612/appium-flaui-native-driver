@@ -1,5 +1,7 @@
 # Architecture Decision Records (ADR)
 
+*Design · ADR log (append-only) · updated 2026-06-04*
+
 Decisions locked by Claude (acting as senior dev) on 2026-06-03, per the user's delegation
 ("you decide, implement, and document thoroughly"). Each can be revisited; revisions append a new
 dated entry rather than rewriting history.

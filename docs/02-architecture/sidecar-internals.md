@@ -1,5 +1,7 @@
 # Sidecar internals — a file-by-file tour
 
+*Architecture · updated 2026-06-04*
+
 > **Layer:** low-level (C# implementation). For the high-level picture see
 > [overview](./overview.md); for the wire contract and op shapes see
 > [RPC protocol](../03-reference/rpc-protocol.md); for the watchdog / poison / recycle

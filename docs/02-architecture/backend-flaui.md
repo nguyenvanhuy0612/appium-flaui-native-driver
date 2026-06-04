@@ -1,5 +1,7 @@
 # The FlaUI / UIA3 Engine
 
+*Architecture · updated 2026-06-04*
+
 > **Layer:** backend internals — what the C# sidecar actually uses to drive Windows UI.
 > For the high-level two-process picture see [architecture overview](./overview.md); for the wire-level
 > op/action names this engine is reached through see [RPC protocol](../03-reference/rpc-protocol.md)

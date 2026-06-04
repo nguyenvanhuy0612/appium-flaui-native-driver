@@ -1,5 +1,7 @@
 # Phase 0–1: De-risking Spikes & Skeleton — Implementation Plan
 
+*Archived — frozen historical snapshot. Kept for reference; links may point to docs that have since moved.*
+
 > **Status: COMPLETED & SUPERSEDED (frozen, historical).** All Phase 0–1 goals (and Phases 2–5 beyond them)
 > were delivered and verified on the Windows box. This file is kept as the original plan of record. For the
 > current state see [`../../FUNCTIONS.md`](../../FUNCTIONS.md) (API/status), [`../../CHANGELOG-internal.md`](../../CHANGELOG-internal.md)

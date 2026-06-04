@@ -1,5 +1,7 @@
 # Architecture Overview
 
+*Architecture · updated 2026-06-04*
+
 > **Layer:** high-level (C4 context + container). For the wire contract see
 > [RPC protocol](../03-reference/rpc-protocol.md); for how one call is bounded against hangs see
 > [stability](./stability.md); for the C# files see [sidecar internals](./sidecar-internals.md).
@@ -14,58 +16,35 @@ compiled **C#/.NET 8 FlaUI sidecar** that does the actual UI Automation (UIA3) w
 
 ## C4 Level 1 — System context
 
-```
-            W3C WebDriver / Appium 3
-┌──────────────┐   HTTP/JSON   ┌───────────────────────────────┐
-│ Test client  │ ────────────► │  Appium server                │
-│ (WebdriverIO,│               │   + appium-flaui-native-driver │
-│  Python,curl)│ ◄──────────── │                                │
-└──────────────┘               └───────────────┬───────────────┘
-                                                │ controls
-                                                ▼
-                                  ┌───────────────────────────┐
-                                  │  Windows desktop / target  │
-                                  │  app (UIA provider)        │
-                                  └───────────────────────────┘
+```mermaid
+flowchart TB
+    client["Test client<br/>(WebdriverIO / Python / curl)"]
+    appium["Appium server<br/>+ appium-flaui-native-driver"]
+    target["Windows desktop / target app<br/>(UIA provider)"]
+    client -- "W3C WebDriver / Appium 3 · HTTP/JSON" --> appium
+    appium -- "responses" --> client
+    appium -- "controls" --> target
 ```
 
 The client sees a normal Appium driver. Everything below is internal to the driver package.
 
 ## C4 Level 2 — Containers
 
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│ Appium server process (Node.js)                                              │
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────┐    │
-│  │ TS DRIVER  — FlaUINativeDriver (lib/driver.ts)                       │    │
-│  │   • W3C commands: find / element / source / screenshot / actions /   │    │
-│  │     window / file-transfer                                           │    │
-│  │   • windows: extension commands (invoke, toggle, scroll, keys, …)    │    │
-│  │   • XPath 1.0 engine (lib/xpath) — find pushed down or evaluated TS  │    │
-│  │   • Sidecar lifecycle  (lib/backend/sidecar.ts)                      │    │
-│  │   • RPC client + timeouts (lib/backend/rpc-client.ts)                │    │
-│  └───────────────────────────────┬────────────────────────────────────┘    │
-└──────────────────────────────────┼─────────────────────────────────────────┘
-                                    │  HTTP/JSON on a loopback port
-                                    │  POST /session · POST /op · GET /status
-                                    │  (handshake: sidecar prints PORT=<n> on stdout;
-                                    │   heartbeat: parent dies → stdin EOF → sidecar exits)
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────────┐
-│ SIDECAR process — FlaUiSidecar.exe (self-contained .NET 8, single file)      │
-│                                                                              │
-│  Kestrel HTTP host (sidecar/Program.cs)                                      │
-│     └─ UiaScheduler — ONE serialized STA worker + per-op watchdog            │
-│          └─ OpInterpreter — JSON op → FlaUI/UIA3 calls                       │
-│               ├─ PropertyResolver  (attributes / patterns)                   │
-│               ├─ PageSourceBuilder (XML tree)                                │
-│               ├─ ElementRegistry   (RuntimeId → element, FIFO cache)         │
-│               └─ Win32 / ClipboardImage (P/Invoke escapes)                   │
-│                                    │                                         │
-│                                    ▼  FlaUI.UIA3 (COM)                       │
-│                          Windows UI Automation → target app                  │
-└────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph node["Appium server process (Node.js)"]
+        driver["TS DRIVER — FlaUINativeDriver (lib/driver.ts)<br/>W3C commands · windows: extensions · XPath 1.0 (lib/xpath)<br/>sidecar lifecycle (backend/sidecar.ts) · RPC client + timeouts (backend/rpc-client.ts)"]
+    end
+    subgraph side["SIDECAR process — FlaUiSidecar.exe (.NET 8, single file)"]
+        host["Kestrel HTTP host (Program.cs)"]
+        sched["UiaScheduler — ONE serialized STA worker + per-op watchdog"]
+        interp["OpInterpreter — JSON op → FlaUI/UIA3"]
+        support["PropertyResolver · PageSourceBuilder · ElementRegistry · Win32 / ClipboardImage"]
+        host --> sched --> interp --> support
+    end
+    uia["FlaUI.UIA3 (COM) → Windows UI Automation → target app"]
+    driver -- "HTTP/JSON loopback · POST /session · POST /op · GET /status<br/>handshake PORT=n on stdout · heartbeat stdin-EOF" --> host
+    support --> uia
 ```
 
 ### Why two processes

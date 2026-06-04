@@ -1,5 +1,7 @@
 # Documentation
 
+*Index · reading map · updated 2026-06-04*
+
 **FlaUINative** is a standalone, W3C-first Appium 3 driver for Windows UI automation. A thin
 **TypeScript driver** speaks the WebDriver/Appium protocol and forwards **structured JSON ops**
 over loopback HTTP to a compiled **C#/.NET 8 FlaUI sidecar**, which does all UI Automation

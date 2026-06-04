@@ -1,5 +1,7 @@
 # Locators & XPath — finder reference
 
+*Reference · updated 2026-06-04*
+
 > The locator strategies and XPath engine the driver exposes to `findElement`/`findElements`.
 > Strategies are defined in code by `locatorStrategies` and the `propMap` in
 > [`lib/driver.ts`](../../lib/driver.ts); the XPath engine lives under

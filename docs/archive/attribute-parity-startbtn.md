@@ -1,5 +1,7 @@
 # Attribute parity check — Start button (.44)
 
+*Archived — frozen historical snapshot. Kept for reference; links may point to docs that have since moved.*
+
 Element: taskbar **Start** button — `Name="Start"`, `ControlType=Button`, `ClassName="Start"`,
 `RuntimeId [2A.1009A]` (= `42.65690` decimal), `NativeWindowHandle 0x1009A`. Source of truth:
 `inspect.exe` dump (`inspect.startbtn.md`). Driver: `windows: getAttributes` + per-name `getAttribute`.

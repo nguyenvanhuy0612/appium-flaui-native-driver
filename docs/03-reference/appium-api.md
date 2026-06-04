@@ -1,5 +1,7 @@
 # Appium API Reference
 
+*Reference · canonical API surface (W3C + windows:) · updated 2026-06-04*
+
 The complete command surface of the **appium-flaui-native-driver** (Appium 3, `automationName=FlaUINative`): every W3C WebDriver endpoint it implements and every `windows:` extension command, with the backend op each maps to and a verification status. This is a coverage map, not a tutorial — for wire-level op shapes (envelope, action labels, input kinds, error types) see [./rpc-protocol.md](./rpc-protocol.md), for locator/XPath detail see [./locators-xpath.md](./locators-xpath.md), and for session capabilities see [./capabilities.md](./capabilities.md).
 
 > **Authority order** when sources disagree: the **code** (`lib/driver.ts`, `lib/commands/extensions.ts`, `lib/backend/ops.ts`) wins over anything in `reference/`, which in turn wins over `decisions/` (ADRs). This file is derived from the code as of the latest build.

@@ -1,0 +1,24 @@
+name: docs-links
+
+# Verify internal relative links in Markdown never rot. Offline mode checks only
+# local file links (external URLs are skipped to avoid flaky network / rate limits).
+# docs/archive/ is excluded on purpose — those are frozen historical snapshots whose
+# internal links may point to docs that have since moved.
+
+on:
+  pull_request:
+    paths: ['**/*.md']
+  push:
+    branches: [master]
+    paths: ['**/*.md']
+
+jobs:
+  links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Markdown links (internal, offline)
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --no-progress --offline --exclude-path docs/archive './**/*.md'
+          fail: true

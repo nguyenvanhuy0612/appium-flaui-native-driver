@@ -1,5 +1,7 @@
 # Internal Changelog — "what we did and why"
 
+*Internal · maintainer work log · updated 2026-06-04*
+
 A running log of work sessions, written so anyone (incl. a "not very familiar" reader) can follow the
 project's evolution. Newest first.
 

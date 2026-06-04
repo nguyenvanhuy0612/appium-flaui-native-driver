@@ -1,5 +1,7 @@
 # Request Flow — one op through every layer
 
+*Architecture · updated 2026-06-04*
+
 > **Layer:** sequence (one operation, end to end). For the high-level container view see
 > [architecture overview](./overview.md); for the C# files see [sidecar internals](./sidecar-internals.md).
 > **All timeout VALUES live in [stability](./stability.md)** — this page shows the *path*, not the numbers.
@@ -14,43 +16,25 @@ The annotations marked **C / D / E** are the anti-hang behaviours shipped in bet
 
 ## The flow
 
-```
-CLIENT (WebdriverIO / Python)
-  │  HTTP   (appium session newCommandTimeout)
-  ▼
-APPIUM ─ per-session command queue (AsyncLock)  ◄── one in-flight op holds the lock; later cmds QUEUE
-  │
-  ▼  driver.op(o)
-TS DRIVER ── ensureHealthyAndOp(o)
-  │   └─ RpcClient.fetchJson(POST /op, perOpTimeout)   ◄── D: perOp = operationTimeout + 5s;
-  │        ├─ AbortController        → abort after  perOpTimeout            PowerShell uses its own + 5s
-  │        └─ Promise.race vs HARD DEADLINE = perOpTimeout + 5s         ◄── BACKSTOP (beta.13)
-  │             • fetch settles normally → return value / RpcError
-  │             • fetch hangs (abort failed) → reject Error("transport") @ hard-deadline
-  │   ┌─ RpcError ({ok:false} envelope = backend is alive, incl. "timeout") → map to W3C error; session lives
-  │   └─ NON-RpcError (ECONNREFUSED / abort / hard-deadline / sidecar dead)  ◄── C: TRANSPORT failure
-  │          → autoRecycle (opt-in, default OFF)? recycle + retry once
-  │          → else (default): stop() the dead/wedged sidecar → markDead → throw NoSuchDriverError
-  │                            (W3C "invalid session id", 404) ; every later op also fails fast
-  │  HTTP /op
-  ▼
-SIDECAR (C#) ── RunOp(work)
-  │   └─ UiaScheduler.RunAsync(work, opTimeout)
-  │        ├─ _gate SemaphoreSlim(1,1)  ── one op at a time (serialize)
-  │        ├─ enqueue → STA worker ;  Task.WhenAny(Tcs, Task.Delay(opTimeout))
-  │        └─ on timeout → cts.Cancel() → probe worker (2s no-op)
-  │              • worker responds  → throw TimeoutException only
-  │              • worker frozen    → PoisonAndReplaceWorker (abandon stuck STA, start fresh) ;
-  │                                    ≥5 poisoned → SchedulerFatalException → recycle
-  │   exception map: Timeout→"timeout" · Fatal→"unknown error" · Stale/NotFound/InvalidArg/…
-  ▼
-UIA3 (COM)  ── ConnectionTimeout / TransactionTimeout  ◄── D: set BELOW the watchdog → COM self-aborts first
-  ▼
-TARGET APP (UIA provider)   ← where it actually freezes (e.g. SecureAge dialog)
+```mermaid
+flowchart TB
+    client["CLIENT (WebdriverIO / Python)"]
+    queue["APPIUM — per-session command queue (AsyncLock)<br/>one in-flight op holds the lock; later cmds queue"]
+    tsdriver["TS DRIVER — ensureHealthyAndOp(o)<br/>RpcClient POST /op · per-op timeout + hard-deadline backstop"]
+    side["SIDECAR (C#) — RunOp → UiaScheduler.RunAsync<br/>gate(1) serialize → STA worker → watchdog → poison/replace"]
+    uia["UIA3 (COM) — Connection/Transaction timeout (set below the watchdog)"]
+    app["TARGET APP (UIA provider) — where it freezes (e.g. SecureAge dialog)"]
 
-Heartbeat: parent (appium) dies → stdin EOF → sidecar self-exits (no orphan).
-Idle guard (E): no /op or /session for idleTimeout → self-exits (bounds orphans).
+    client -->|HTTP| queue --> tsdriver -->|HTTP /op| side --> uia --> app
+
+    side -. "{ok:false} RpcError — backend alive (incl. 'timeout')<br/>map to W3C error · SESSION LIVES" .-> tsdriver
+    tsdriver -. "value / W3C error" .-> client
+    side -. "transport failure (C) — dead/wedged<br/>NoSuchDriverError 404 · SESSION DEAD" .-> tsdriver
 ```
+
+> **Heartbeat:** parent (Appium) dies → stdin EOF → sidecar self-exits (no orphan).
+> **Idle guard (E):** no `/op` or `/session` for `idleTimeout` → self-exits (bounds orphans).
+> Exact deadlines and the exception→W3C map: [stability](./stability.md) · [rpc-protocol](../03-reference/rpc-protocol.md).
 
 ## Reading the flow
 
