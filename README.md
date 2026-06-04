@@ -480,6 +480,7 @@ dotnet publish sidecar -r win-x64 --self-contained -p:PublishSingleFile=true
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | ADRs (incl. ADR-012 screen recording out of scope, ADR-015 security posture) |
 | [`docs/NEXT-STEPS.md`](docs/NEXT-STEPS.md) | Roadmap (remaining phases) |
 | [`docs/CLEAN-REINSTALL.md`](docs/CLEAN-REINSTALL.md) | Fast clean wipe-and-reinstall on Windows test boxes |
+| [`docs/ANTI-HANG.md`](docs/ANTI-HANG.md) | Anti-hang layers, timeouts, failure modes (flow diagram) + proposed direction |
 | [`docs/CHANGELOG-internal.md`](docs/CHANGELOG-internal.md) | Verified-vs-authored work log |
 
 ### Known gaps / roadmap
