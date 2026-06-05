@@ -48,7 +48,7 @@ async function mainFlow() {
     const xml = typeof src.data?.value === 'string' ? src.data.value : '';
     if (src.status !== 200) console.log('[source ERR]', src.status, JSON.stringify(src.data).slice(0, 500));
     console.log('[source]', src.status, 'len=', xml.length, '|', xml.slice(0, 200).replace(/\n/g, ' '));
-    // nova2 schema markers: full property set, relative coords, pattern attrs.
+    // page-source schema markers: full property set, relative coords, pattern attrs.
     const schemaOk =
       xml.includes('LocalizedControlType="') && xml.includes(' x="') && xml.includes(' width="') &&
       xml.includes('IsKeyboardFocusable="') && xml.includes('CanMaximize="');

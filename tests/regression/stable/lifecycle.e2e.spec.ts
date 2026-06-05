@@ -24,7 +24,6 @@ function buildCaps() {
         'appium:automationName': 'FlaUINative',
         'appium:app': TARGET_APP,
         'appium:shouldCloseApp': true,
-        'appium:powerShellCommandTimeout': 60_000,
         'ms:waitForAppLaunch': 5,
     } as WebdriverIO.Capabilities;
 }
@@ -40,7 +39,7 @@ function buildOpts() {
     };
 }
 
-describe('NovaWindows2 — session lifecycle', function () {
+describe('FlaUINative — session lifecycle', function () {
     this.timeout(180_000);
 
     it('session create completes in under 30s (init no longer hangs)', async function () {

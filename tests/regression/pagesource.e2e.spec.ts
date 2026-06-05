@@ -15,7 +15,7 @@ const TARGET_APP = process.env.TARGET_APP ?? 'C:\\Windows\\System32\\notepad.exe
 
 const url = new URL(APPIUM_URL);
 
-describe('NovaWindows2 — page source', function () {
+describe('FlaUINative — page source', function () {
     this.timeout(120_000);
 
     let driver: Browser;
@@ -32,7 +32,6 @@ describe('NovaWindows2 — page source', function () {
                 'appium:automationName': 'FlaUINative',
                 'appium:app': TARGET_APP,
                 'appium:shouldCloseApp': true,
-                'appium:powerShellCommandTimeout': 60_000,
                 'ms:waitForAppLaunch': 5,
             } as WebdriverIO.Capabilities,
         });

@@ -6,7 +6,7 @@
  *   - NoSuchElement
  *   - StaleElementReference
  *   - InvalidSelector
- *   - Timeout (powerShellCommandTimeout)
+ *   - Timeout (per-call powershell `timeout` arg)
  *
  * Run:
  *   APPIUM_URL=http://127.0.0.1:4723 \
@@ -42,7 +42,7 @@ function errorCode(e: any): string {
     return msg;
 }
 
-describe('NovaWindows2 — error surface', function () {
+describe('FlaUINative — error surface', function () {
     this.timeout(180_000);
 
     let driver: Browser;
@@ -59,7 +59,6 @@ describe('NovaWindows2 — error surface', function () {
                 'appium:automationName': 'FlaUINative',
                 'appium:app': TARGET_APP,
                 'appium:shouldCloseApp': true,
-                'appium:powerShellCommandTimeout': 60_000,
                 'ms:waitForAppLaunch': 5,
             } as WebdriverIO.Capabilities,
         });
@@ -143,17 +142,32 @@ describe('NovaWindows2 — error surface', function () {
     });
 
     describe('Timeout', function () {
-        it('a runaway PS command rejects with timeout after powerShellCommandTimeout', async function () {
-            // Use a short timeout via direct executeScript override is not
-            // supported per-call; instead Start-Sleep beyond a short
-            // session-level timeout would require a fresh session. Here we
-            // just verify that a deliberately slow PS command eventually
-            // resolves (sanity) — the actual timeout path is unit-tested
-            // (tests/unit/powershell-runtime.spec.ts).
+        it('a runaway PS command rejects with timeout after the per-call timeout', async function () {
+            // The per-call `timeout` (ms) bounds a single powershell invocation. A 30s
+            // Start-Sleep with a 2s budget must reject fast, surfacing a `timeout` error
+            // rather than hanging for the full sleep.
+            this.timeout(15_000);
+            const start = Date.now();
+            let err: any;
+            try {
+                await driver.execute('powershell', {
+                    script: `Start-Sleep -Seconds 30`,
+                    timeout: 2_000,
+                });
+            } catch (e) { err = e; }
+            const elapsed = Date.now() - start;
+            expect(err, 'a bounded PS command must reject').to.exist;
+            expect(errorCode(err)).to.match(/timeout/i);
+            // Must come back well under the 30s sleep — the child was killed at ~2s.
+            expect(elapsed).to.be.lessThan(15_000);
+        });
+
+        it('a fast PS command under its timeout budget resolves normally', async function () {
             this.timeout(15_000);
             const start = Date.now();
             await driver.execute('powershell', {
                 script: `Start-Sleep -Milliseconds 1000`,
+                timeout: 10_000,
             });
             const elapsed = Date.now() - start;
             expect(elapsed).to.be.greaterThan(900);

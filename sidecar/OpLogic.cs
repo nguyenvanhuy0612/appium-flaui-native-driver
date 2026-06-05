@@ -125,6 +125,41 @@ public static class OpLogic
         return long.TryParse(raw, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
     }
 
+    // ── attach-target matching (appName window-title regex / processName) ────────────────────────────
+    /// <summary>Compile an appName window-title pattern as a case-insensitive, UNANCHORED regex. A malformed
+    /// pattern is a USER error → <see cref="InvalidArgumentException"/> ("invalid argument"), not an opaque
+    /// unknown error. The compiled regex is matched against each top-level window's Name (title) with
+    /// <see cref="Regex.IsMatch(string)"/>, so any substring match counts.</summary>
+    public static Regex CompileAppNameRegex(string pattern)
+    {
+        try { return new Regex(pattern ?? string.Empty, RegexOptions.IgnoreCase); }
+        catch (ArgumentException ex)
+        {
+            throw new InvalidArgumentException($"appName is not a valid regular expression: '{pattern}' ({ex.Message})");
+        }
+    }
+
+    /// <summary>True when a window title matches the appName pattern: case-insensitive, unanchored
+    /// (substring) match. A null title never matches.</summary>
+    public static bool MatchesAppName(Regex pattern, string? windowTitle) =>
+        windowTitle is not null && pattern.IsMatch(windowTitle);
+
+    /// <summary>Normalize a processName cap to a bare executable name for an exact, case-insensitive match:
+    /// trims whitespace and strips a single trailing ".exe" (case-insensitive). Returns "" for null/blank
+    /// input. Note this is EXACT-name normalization (unlike <c>FindPidByExe</c>, which also accepts a path).</summary>
+    public static string NormalizeProcessName(string? processName)
+    {
+        var s = (processName ?? string.Empty).Trim();
+        if (s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) s = s[..^4];
+        return s;
+    }
+
+    /// <summary>Read createSessionTimeout (ms) from raw caps value handling: a positive number is the poll
+    /// budget for an attach target to appear; null/non-number/non-positive falls back to the default
+    /// (60000ms). Pure helper so the parsing is unit-testable without JSON plumbing.</summary>
+    public static TimeSpan CreateSessionTimeout(double? rawMs, double defaultMs = 60_000) =>
+        TimeSpan.FromMilliseconds(rawMs is double v && v > 0 ? v : defaultMs);
+
     // ── UIA nested-timeout default ──────────────────────────────────────────────────────────────────
     /// <summary>UIA connection/transaction default: Max(1000ms, Min(20000ms, opTimeout-5000ms)). Sits just
     /// below the op watchdog so a frozen provider's COM call self-aborts before the watchdog must poison the
@@ -164,6 +199,6 @@ public static class OpLogic
     /// exe's r.X + r.Width / 2 behavior, so odd dimensions round toward the top-left).</summary>
     public static IntPoint Center(IntRect r) => new(r.X + r.Width / 2, r.Y + r.Height / 2);
 
-    /// <summary>A point at the rect's top-left plus an explicit (dx, dy) offset (nova2 offset semantics).</summary>
+    /// <summary>A point at the rect's top-left plus an explicit (dx, dy) offset — the documented offset semantics.</summary>
     public static IntPoint OffsetFrom(IntRect r, int dx, int dy) => new(r.X + dx, r.Y + dy);
 }

@@ -74,6 +74,62 @@ describe('§8 Sessions', function () {
     pool.forget(sidB);
   });
 
+  it('attach flow: processName (exact exe, case-insensitive) re-attaches to a running app', async () => {
+    // processName is the NEW exact-exe capability (replaces the removed appProcessId). Launch the
+    // app and leave it running, then attach to it by its executable name with no `app` capability.
+    const exe = TARGET_APP.split('\\').pop() ?? 'notepad.exe'; // e.g. 'notepad.exe'
+    const sidA = await pool.open({ 'appium:app': TARGET_APP, 'appium:shouldCloseApp': false });
+    await w3c.deleteSession(sidA);
+    pool.forget(sidA);
+
+    // Re-attach by exe name. case-insensitivity is part of the contract, so upper-case it.
+    const attach = await w3c.newSession({ 'appium:processName': exe.toUpperCase() });
+    pool.track(attach.value?.sessionId);
+    expect(attach.status, `attach by processName: ${attach.raw?.slice(0, 200)}`).to.equal(200);
+    const sidB = attach.value.sessionId;
+    const edId = await findEditable(sidB);
+    const sv = await w3c.setValue(sidB, edId, 'processName-attach-ok');
+    expect(sv.status).to.equal(200);
+    const v = await w3c.getAttribute(sidB, edId, 'Value');
+    expect(v.value).to.equal('processName-attach-ok');
+    // shouldCloseApp defaults true -> deleting B closes the attached window.
+    const del = await w3c.deleteSession(sidB);
+    expect(del.status).to.equal(200);
+    pool.forget(sidB);
+  });
+
+  it('createSessionTimeout is accepted and a normal launch completes within it', async () => {
+    // createSessionTimeout (ms, default 60000) bounds session creation. A generous budget must not
+    // interfere with a normal launch.
+    const res = await w3c.newSession({ 'appium:app': TARGET_APP, 'appium:createSessionTimeout': 60_000 });
+    pool.track(res.value?.sessionId);
+    expect(res.status, `createSessionTimeout launch: ${res.raw?.slice(0, 200)}`).to.equal(200);
+    expect(res.value.sessionId).to.be.a('string').and.have.length.greaterThan(0);
+  });
+
+  it('app:Notepad-by-title: appName regex matches the window TITLE (case-insensitive)', async () => {
+    // appName is now a case-insensitive REGEX matched against the window TITLE (not the exe name).
+    // Launch the app, read its real title, then attach with an appName regex built from that title.
+    const sidA = await pool.open({ 'appium:app': TARGET_APP, 'appium:shouldCloseApp': false });
+    const title = (await w3c.getTitle(sidA)).value as string;
+    await w3c.deleteSession(sidA);
+    pool.forget(sidA);
+
+    // Build a forgiving regex from a stable substring of the title (e.g. "Notepad"), upper-cased to
+    // prove case-insensitivity. Fall back to ".*" if the title is empty so the test stays meaningful.
+    const token = (title && title.trim().length > 0)
+      ? title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').slice(0, 12).toUpperCase()
+      : '.*';
+    const attach = await w3c.newSession({ 'appium:appName': token });
+    pool.track(attach.value?.sessionId);
+    expect(attach.status, `attach by appName title-regex: ${attach.raw?.slice(0, 200)}`).to.equal(200);
+    const sidB = attach.value.sessionId;
+    const winId = await findWindow(sidB);
+    expect(winId).to.be.a('string').and.have.length.greaterThan(0);
+    await w3c.deleteSession(sidB);
+    pool.forget(sidB);
+  });
+
   it("app:'Root' creates a whole-desktop session", async () => {
     const res = await w3c.newSession({ 'appium:app': 'Root' });
     pool.track(res.value?.sessionId);

@@ -151,10 +151,7 @@ const out = {};
   // powershell: op.timeoutMs wins
   let d = mk();
   out.rpcTimeout.psOpTimeout = d.rpcTimeoutFor({ op: 'powershell', script: 'x', timeoutMs: 1000 }); // 6000
-  // powershell: session powerShellCommandTimeout next
-  d = mk(); d.opts.powerShellCommandTimeout = 2000;
-  out.rpcTimeout.psSession = d.rpcTimeoutFor({ op: 'powershell', script: 'x' }); // 7000
-  // powershell: default 60000
+  // powershell: default 60000 (no session-level cap any more)
   d = mk();
   out.rpcTimeout.psDefault = d.rpcTimeoutFor({ op: 'powershell', script: 'x' }); // 65000
   // non-PS: operationTimeoutMs
@@ -199,8 +196,8 @@ const out = {};
   for (const [label, opts] of [
     ['app', { app: 'C:/x.exe' }],
     ['appTopLevelWindow', { appTopLevelWindow: '0x1234' }],
-    ['appProcessId', { appProcessId: 4321 }],
     ['appName', { appName: 'SecureAge' }],
+    ['processName', { processName: 'SecureAge.exe' }],
   ]) {
     const { result } = await runReal(opts);
     // Guard passed iff createSession got PAST it (threw the later sentinel), not the guard message.
@@ -211,6 +208,20 @@ const out = {};
     threw: none.result.threw,
     msg: none.result.msg,
     isGuardError: none.result.threw && /must be provided/.test(none.result.msg),
+  };
+  // appProcessId is no longer a recognised attach capability: alone it must NOT satisfy the guard.
+  const onlyPid = await runReal({ appProcessId: 4321 });
+  out.caps.appProcessIdAlone = {
+    threw: onlyPid.result.threw,
+    msg: onlyPid.result.msg,
+    isGuardError: onlyPid.result.threw && /must be provided/.test(onlyPid.result.msg),
+  };
+
+  // 5b. sessionBody field coverage: with processName + createSessionTimeout default, and NOT appProcessId.
+  out.sessionBody = {
+    withProcessName: (await runReal({ processName: 'SecureAge.exe' })).sessionBody,
+    defaultCreateTimeout: (await runReal({ app: 'C:/x.exe' })).sessionBody,
+    explicitCreateTimeout: (await runReal({ app: 'C:/x.exe', createSessionTimeout: 12345 })).sessionBody,
   };
 
   // 4. idle-timeout derivation read back from the real sessionBody (with app set so the guard passes).
@@ -324,10 +335,7 @@ describe('FlaUINativeDriver core (state machine, op mapping, timeouts, caps)', f
     it('powershell op.timeoutMs wins: timeoutMs + 5000', () => {
       expect(out.rpcTimeout.psOpTimeout).to.equal(6000);
     });
-    it('powershell falls back to powerShellCommandTimeout + 5000', () => {
-      expect(out.rpcTimeout.psSession).to.equal(7000);
-    });
-    it('powershell default 60000 + 5000', () => {
+    it('powershell default 60000 + 5000 (no session-level cap)', () => {
       expect(out.rpcTimeout.psDefault).to.equal(65000);
     });
     it('non-PS uses operationTimeoutMs + 5000', () => {
@@ -355,14 +363,34 @@ describe('FlaUINativeDriver core (state machine, op mapping, timeouts, caps)', f
   });
 
   describe('5. createSession capability guard', () => {
-    for (const cap of ['app', 'appTopLevelWindow', 'appProcessId', 'appName']) {
+    for (const cap of ['app', 'appTopLevelWindow', 'appName', 'processName']) {
       it(`'${cap}' alone satisfies the guard (createSession proceeds past it)`, () => {
         expect(out.caps[cap].pastGuard, JSON.stringify(out.caps[cap])).to.equal(true);
       });
     }
-    it('none of app/appTopLevelWindow/appProcessId/appName → throws the "must be provided" error', () => {
+    it('none of app/appTopLevelWindow/appName/processName → throws the "must be provided" error', () => {
       expect(out.caps.none.threw).to.equal(true);
       expect(out.caps.none.isGuardError, out.caps.none.msg).to.equal(true);
+    });
+    it('appProcessId is no longer recognised: alone it does NOT satisfy the guard', () => {
+      expect(out.caps.appProcessIdAlone.threw).to.equal(true);
+      expect(out.caps.appProcessIdAlone.isGuardError, out.caps.appProcessIdAlone.msg).to.equal(true);
+    });
+  });
+
+  describe('5b. sessionBody fields (shared contract with the C# sidecar)', () => {
+    it('includes processName when the processName capability is set', () => {
+      expect(out.sessionBody.withProcessName.processName).to.equal('SecureAge.exe');
+    });
+    it('createSessionTimeout defaults to 60000 when not provided', () => {
+      expect(out.sessionBody.defaultCreateTimeout.createSessionTimeout).to.equal(60000);
+    });
+    it('createSessionTimeout passes an explicit value through', () => {
+      expect(out.sessionBody.explicitCreateTimeout.createSessionTimeout).to.equal(12345);
+    });
+    it('does NOT include the removed appProcessId field', () => {
+      expect(out.sessionBody.defaultCreateTimeout).to.not.have.property('appProcessId');
+      expect(out.sessionBody.withProcessName).to.not.have.property('appProcessId');
     });
   });
 });

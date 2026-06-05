@@ -3,7 +3,7 @@
  *
  * Verifies the freshly deployed driver is registered with Appium and can
  * drive a real Windows session end-to-end:
- *   1. Create a session with automationName=NovaWindows2.
+ *   1. Create a session with automationName=FlaUINative.
  *   2. Read the active window name.
  *   3. Dump page source.
  *   4. Find at least one element via XPath.
@@ -40,7 +40,6 @@ describe('FlaUINative driver — smoke', function () {
                 'appium:automationName': 'FlaUINative',
                 'appium:app': TARGET_APP,
                 'appium:shouldCloseApp': true,
-                'appium:powerShellCommandTimeout': 60_000,
                 'ms:waitForAppLaunch': 5,
             } as WebdriverIO.Capabilities,
         });
@@ -50,7 +49,7 @@ describe('FlaUINative driver — smoke', function () {
         if (driver) await driver.deleteSession();
     });
 
-    it('creates a NovaWindows2 session', function () {
+    it('creates a FlaUINative session', function () {
         expect(driver).to.exist;
         expect(driver.sessionId).to.be.a('string').and.not.empty;
     });

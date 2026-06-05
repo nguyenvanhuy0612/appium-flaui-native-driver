@@ -43,7 +43,6 @@ function baseOpts(extra: Record<string, any> = {}) {
         capabilities: {
             platformName: 'Windows',
             'appium:automationName': 'FlaUINative',
-            'appium:powerShellCommandTimeout': 60_000,
             ...extra,
         } as WebdriverIO.Capabilities,
     };
@@ -53,7 +52,7 @@ function baseOpts(extra: Record<string, any> = {}) {
 // Group 1 — desktop-anchored (app: Root). Most commands don't need an app.
 // ============================================================================
 
-describe('NovaWindows2 — component coverage (Root)', function () {
+describe('FlaUINative — component coverage (Root)', function () {
     this.timeout(180_000);
 
     let driver: Browser;
@@ -301,7 +300,7 @@ Write-Output "x*y=$z"
 // the launched app. Root has no such window to maximize/minimize.
 // ============================================================================
 
-describe('NovaWindows2 — component coverage (Notepad)', function () {
+describe('FlaUINative — component coverage (Notepad)', function () {
     this.timeout(180_000);
 
     let driver: Browser;
@@ -405,7 +404,7 @@ describe('NovaWindows2 — component coverage (Notepad)', function () {
 // Group 3 — prerun cap behavior (separate session because caps differ).
 // ============================================================================
 
-describe('NovaWindows2 — component coverage (prerun cap)', function () {
+describe('FlaUINative — component coverage (prerun cap)', function () {
     this.timeout(120_000);
 
     it('prerun script runs at session creation', async function () {
@@ -435,7 +434,7 @@ describe('NovaWindows2 — component coverage (prerun cap)', function () {
 // Group 4 — screen recording
 // ============================================================================
 
-describe('NovaWindows2 — component coverage (recording)', function () {
+describe('FlaUINative — component coverage (recording)', function () {
     this.timeout(120_000);
 
     let driver: Browser;

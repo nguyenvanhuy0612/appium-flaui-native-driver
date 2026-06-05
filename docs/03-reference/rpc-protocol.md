@@ -1,6 +1,6 @@
 # RPC Protocol — the TS ↔ C# seam
 
-*Reference · canonical TS↔C# RPC contract · updated 2026-06-04*
+*Reference · canonical TS↔C# RPC contract · updated 2026-06-05*
 
 > **Canonical** wire contract between the TypeScript driver and the C# FlaUI sidecar. Defined in
 > code by [`lib/backend/ops.ts`](../../lib/backend/ops.ts) (request/response types) and
@@ -205,7 +205,7 @@ err: timeout (process tree killed) · unknown error
 ```
 
 > PowerShell deliberately bypasses the STA scheduler and the per-op watchdog — it has its own child
-> process and timeout (default `powerShellCommandTimeout`, 60s), so it is **not** bounded by
+> process and timeout (per-call `timeout`, default 60s), so it is **not** bounded by
 > `flaui:operationTimeout`. See [stability](../02-architecture/stability.md).
 
 ## Worked example

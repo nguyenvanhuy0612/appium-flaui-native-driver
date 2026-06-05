@@ -54,13 +54,12 @@ function baseOpts(extra: Record<string, any> = {}) {
         capabilities: {
             platformName: 'Windows',
             'appium:automationName': 'FlaUINative',
-            'appium:powerShellCommandTimeout': 60_000,
             ...extra,
         } as WebdriverIO.Capabilities,
     };
 }
 
-describe('NovaWindows2 — escape chars & {RETURN} verification', function () {
+describe('FlaUINative — escape chars & {RETURN} verification', function () {
     this.timeout(180_000);
 
     let driver: Browser;

@@ -71,7 +71,6 @@ describe('XPath 1.0 E2E — feature coverage', function () {
                 'appium:automationName': 'FlaUINative',
                 'appium:app': TARGET_APP,
                 'appium:shouldCloseApp': true,
-                'appium:powerShellCommandTimeout': 60_000,
                 'ms:waitForAppLaunch': 5,
             } as WebdriverIO.Capabilities,
         });

@@ -1,6 +1,6 @@
 # Architecture Decision Records (ADR)
 
-*Design · ADR log (append-only) · updated 2026-06-04*
+*Design · ADR log (append-only) · updated 2026-06-05*
 
 Decisions locked by Claude (acting as senior dev) on 2026-06-03, per the user's delegation
 ("you decide, implement, and document thoroughly"). Each can be revisited; revisions append a new
@@ -30,23 +30,26 @@ per logical operation.
 
 **Why:** Stability is the #1 requirement. UIA3 in C# gives bounded timeouts (`ConnectionTimeout`/
 `TransactionTimeout`), a dedicated cancellable worker thread, and `CacheRequest` batching — none of which
-the PowerShell/UIA2-managed backend can offer. We do **not** fork FlaUI.WebDriver because we want to reuse
-nova2's rich TS orchestration rather than re-implement it in C#.
+a PowerShell/UIA2-managed backend can offer. We do **not** fork FlaUI.WebDriver: keeping the orchestration
+(driver, routing, XPath engine, page-source consumption) in TypeScript lets us own that surface directly
+rather than re-implement it in C#.
 
 **Consequences:** Requires a Windows build/test environment and a .NET toolchain. Ships per-arch binaries.
 
 ---
 
 ## ADR-003 — The seam = structured JSON ops (not PowerShell strings)
-**Decision:** Replace nova2's `sendPowerShellCommand(cmd: string)` with `sendBackendOp(op: BackendOp):
-Promise<BackendResult>`. The TS backend builders emit structured JSON ops; the sidecar interprets them.
+**Decision:** The TS↔sidecar seam is `sendBackendOp(op: BackendOp): Promise<BackendResult>` — the TS
+backend builders emit structured JSON ops and the sidecar interprets them — rather than shipping
+PowerShell command *strings* across the boundary.
 
-**Why:** nova2's builders emit PowerShell *text*, which is meaningless to a C# sidecar. A structured op
-contract decouples the two layers cleanly and maps 1:1 onto FlaUI's `ConditionFactory`. The XPath engine
-already models conditions as structured objects, so it ports with minimal change.
+**Why:** PowerShell *text* is meaningless to a C# sidecar. A structured op contract decouples the two
+layers cleanly and maps 1:1 onto FlaUI's `ConditionFactory`. The XPath engine models conditions as
+structured objects already, so it slots straight onto this seam.
 
-**Consequences:** `lib/powershell/*` is rewritten as `lib/backend/*` (op types + builders). Everything above
-the seam (driver, routing, xpath AST, page-source consumption) is preserved.
+**Consequences:** the backend lives under `lib/backend/*` (op types + builders); everything above the seam
+(driver, routing, xpath AST, page-source consumption) is plain TypeScript and independent of the backend
+transport.
 
 ---
 
@@ -63,18 +66,18 @@ endpoint. No TCP port is hard-coded.
 ---
 
 ## ADR-005 — Input (mouse/keyboard) stays in the TS layer for v1
-**Decision:** Keep nova2's `winapi`/koffi Win32 input in TypeScript initially; do not move it into the sidecar yet.
+**Decision:** Keep Win32 input (`winapi`/koffi) in TypeScript initially; do not move it into the sidecar yet.
 
-**Why:** Maximizes reuse of working code and keeps the sidecar smaller. Moving input into the sidecar (to
+**Why:** Keeps the sidecar smaller and the input path easy to iterate on. Moving input into the sidecar (to
 unify timing with UIA focus state) is a later optimization, only if focus-race bugs appear.
 
 **Consequences:** Input timing and UIA state live in two processes; acceptable for v1. Revisit per spec §11.1.
 
 **Revision 1 (2026-06-03): input moved INTO the sidecar via `FlaUI.Core.Input`.** When implementing Phase 5
-we found FlaUI ships native `Mouse`/`Keyboard` (SendInput wrappers) — far less code than porting nova2's
-koffi/Win32 layer, same library we already trust, and input timing now lives next to UIA state. Verified on
+we found FlaUI ships native `Mouse`/`Keyboard` (SendInput wrappers) — far less code than a TS koffi/Win32
+layer, the same library already in use, and input timing now lives next to UIA state. Verified on
 Windows: pointer click focuses the target (HasKeyboardFocus=true) and `Keyboard.Type` text reads back via
-ValuePattern. The TS `winapi` port is no longer planned.
+ValuePattern. The TS `winapi` path is no longer planned.
 
 ---
 
@@ -83,19 +86,18 @@ ValuePattern. The TS `winapi` port is no longer planned.
 `Condition` model (`{kind:"property"|"and"|"or"|"not", ...}`), not C#/PowerShell condition syntax.
 
 **Why:** A JSON grammar is safe (no code injection), maps directly to `ConditionFactory`, and reuses the
-exact model the XPath engine already produces. nova2's C#/PS syntax made sense only because PowerShell
-*was* the backend; that rationale is gone.
+exact model the XPath engine already produces. A C#/PowerShell condition syntax would only make sense if
+PowerShell *were* the backend — it isn't.
 
-**Consequences:** A small migration note for users coming from nova2's raw-condition syntax. Grammar to be
-documented in the driver README.
+**Consequences:** Grammar to be documented in the driver README.
 
 ---
 
 ## ADR-007 — No PowerShell-execution command in v1
-**Decision:** Do **not** carry over nova2's `windows: powershell` / `prerun`/`postrun` PowerShell features.
+**Decision:** Do **not** ship a `windows: powershell` command or `prerun`/`postrun` PowerShell features in v1.
 
-**Why:** This driver's entire premise is escaping PowerShell's instability. Re-adding a PS-exec path
-reintroduces the failure mode and an insecure feature to maintain. Users who need PS can still use nova2.
+**Why:** This driver's entire premise is escaping PowerShell's instability. Adding a PS-exec path
+reintroduces the failure mode and an insecure feature to maintain.
 
 **Consequences:** Drop related capabilities (`powerShellCommandTimeout`, `isolatedScriptExecution`,
 `prerun`, `postrun`, `treatStderrAsError`). If demand appears later, add it back as a scoped insecure feature.
@@ -130,12 +132,12 @@ artifacts to `prebuilt/` (or attach to releases). Monitor size; revisit if it be
 
 ## ADR-010 — Command surface via Appium 3 `executeMethodMap`
 **Decision:** Declare the `windows:` command surface using `static executeMethodMap` + `this.executeMethod`,
-rather than nova2's hand-rolled `EXTENSION_COMMANDS` string map.
+rather than a hand-rolled `EXTENSION_COMMANDS` string map.
 
 **Why:** Appium 3 can introspect/validate manifest-declared execute methods, and the built-in Inspector can
 list them. Cleaner, safer, and future-proof.
 
-**Consequences:** A mechanical migration of the command map during Phase 2/5.
+**Consequences:** The command map is declared once in `executeMethodMap` and validated by base-driver.
 
 ---
 
@@ -144,7 +146,7 @@ list them. Cleaner, safer, and future-proof.
 `peerDependencies.appium` = `^3.0.0`; bump `@appium/base-driver`/`@appium/types` to the Appium-3 line.
 
 **Why:** The user is integrating with Appium 3. Supporting both 2 and 3 doubles the test matrix for no
-stated benefit (YAGNI). nova2 already covers the Appium-2 era.
+stated benefit (YAGNI).
 
 **Consequences:** Users must be on Appium 3. Documented as a hard requirement.
 
@@ -258,3 +260,44 @@ sacrifice a feature; they give a clean error *only if* an operator chose to disa
 **Consequences:** docs recommend `--relaxed-security` first; scoped `allow-insecure` is the optional
 locked-down alternative. No path allow-list / no PowerShell sandbox (F24 is documentation, not a
 restriction). Verified 2026-06-03: full W3C e2e **74/74** + smoke **1/1** under `appium --relaxed-security`.
+
+---
+
+## ADR-016 — Capability-surface redesign & standalone framing
+**Decision (2026-06-05):** Treat this as a **standalone driver in its own right** — a FlaUI-native Appium 3
+Windows driver — not "a previous driver with a new backend." Where its API happens to match another Windows
+driver, that is a deliberate compatibility alias, not inheritance. Alongside the framing, rework the
+attach/launch and PowerShell capability surface:
+
+- **`appName`** now means a **regex matched case-insensitively against the window TITLE** (e.g.
+  `SecureAge.*`), not an executable name.
+- **`processName`** is **new**: an exact executable name, case-insensitive (accepts with or without `.exe`),
+  attaching to that process's outermost window.
+- **`appProcessId`** is **removed** (attach by PID); `appName`/`processName`/`appTopLevelWindow` cover the
+  attach cases.
+- **`createSessionTimeout`** is **new**: ms, default **60000** — the poll budget to wait for an attach
+  target (`appTopLevelWindow`/`appName`/`processName`) to appear before failing. This is a standard
+  appium-windows-driver capability.
+- **Attach precedence** is fixed and documented: `appTopLevelWindow` → `appName` → `processName` →
+  `app` (launch-or-attach) → `Root`.
+- **`powerShellCommandTimeout` is dropped as a capability.** Instead `execute('powershell',
+  [{script|command, timeout?}])` takes a **per-call `timeout`** (ms, default **60000**). This supersedes
+  ADR-014's consequence that the cap is re-honored.
+- **Dropped no-op caps:** `delayBeforeClick`, `delayAfterClick`, `smoothPointerMove`, `releaseModifierKeys`,
+  `isolatedScriptExecution` — they were accepted but never did anything, so they are gone rather than
+  pretending to be tunables. `typeDelay` is still **accepted** but its per-character delay is **not yet
+  applied** (kept because the cap is harmless and may be wired later).
+- **`convertAbsoluteXPathToRelativeFromElement`** is now **implemented**: when `true`, a find-from-element
+  whose XPath starts with `//` is rewritten to `.//`, giving the legacy "absolute = from the context
+  element" semantics. **`postrun`** is now **implemented** (PowerShell on session teardown, gated by the
+  same `power_shell` feature as `prerun`).
+
+**Why:** The driver stands on its own — FlaUI-native UIA3, the C# sidecar, and the anti-hang model are the
+value, not lineage. The cap surface is realigned with **appium-windows-driver** conventions
+(`createSessionTimeout`, title-regex `appName`, `processName`) so clients written for the standard Windows
+driver transfer cleanly, and per-call PowerShell timeouts are more honest than a session-wide cap for an
+out-of-scheduler escape hatch. Removing no-op caps avoids advertising knobs that do nothing.
+
+**Consequences:** Clients using `appProcessId` or `powerShellCommandTimeout` must migrate
+(`processName`/`appName` for attach; per-call `timeout` for PowerShell). Docs (`capabilities.md`,
+`appium-api.md`, README) updated to match.

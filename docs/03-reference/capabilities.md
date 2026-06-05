@@ -1,6 +1,6 @@
 # Capabilities — session reference
 
-*Reference · updated 2026-06-04*
+*Reference · updated 2026-06-05*
 
 > Complete list of every capability the FlaUINative driver accepts, defined in code by the
 > `constraints` object in [`lib/driver.ts`](../../lib/driver.ts) — the single source of truth for
@@ -21,8 +21,9 @@
 | `appArguments` | string | — | Command-line arguments for the launched app. |
 | `appWorkingDir` | string | — | Working directory for the launched app. |
 | `shouldCloseApp` | boolean | `true` | On session end, close the launched app (or the attached window). |
+| `createSessionTimeout` | number (ms) | `60000` | Poll budget to wait for an attach target (`appTopLevelWindow` / `appName` / `processName`) to appear before failing session creation. |
 
-One of `app`, `appTopLevelWindow`, `appProcessId`, or `appName` is required; session creation fails otherwise.
+One of `app`, `appTopLevelWindow`, `appName`, or `processName` is required; session creation fails otherwise.
 
 ## Attach modes
 
@@ -31,8 +32,16 @@ Attach to an already-running app instead of launching one. Use exactly one.
 | Capability | Type | Default | Description |
 |---|---|---|---|
 | `appTopLevelWindow` | string | — | Attach to a running window by hex HWND (e.g. `0x000A1234`). |
-| `appProcessId` | number | — | Attach by PID; roots the session at the process's outermost window. |
-| `appName` | string | — | Attach by executable name (e.g. `SecureAge`). |
+| `appName` | string | — | Regex matched **case-insensitively against the window TITLE** (e.g. `SecureAge.*`); attaches to the first matching top-level window. |
+| `processName` | string | — | Exact executable name, case-insensitive (with or without `.exe`, e.g. `SecureAge` / `SecureAge.exe`); attaches to that process's outermost window. |
+
+### Attach precedence
+
+When multiple attach/launch caps are present, the session root is resolved in this order:
+
+`appTopLevelWindow` → `appName` → `processName` → `app` (launch-or-attach) → `Root` (whole desktop).
+
+If none resolves within `createSessionTimeout`, session creation fails.
 
 ## `flaui:*` tuning
 
@@ -46,24 +55,19 @@ Attach to an already-running app instead of launching one. Use exactly one.
 | `flaui:idleTimeout` | number (ms) | `newCommandTimeout + 120000` | Sidecar idle self-exit (orphan guard). `newCommandTimeout: 0` disables it; override only for power users — see [stability](../02-architecture/stability.md). |
 | `flaui:autoRecycle` | boolean | `false` | Opt-in silent sidecar recycle + re-attach on transport failure. When off, a dead/wedged sidecar fails the session (`invalid session id`). |
 
-## nova2-compat / `appium:*`
+## Behaviour / `appium:*`
 
-Accepted for compatibility. Several are currently advisory no-ops (noted below); they are accepted, not rejected.
+The standard appium-windows-driver caps the driver honours, plus a few advisory flags it accepts (rather than rejects) without yet acting on.
 
 | Capability | Type | Default | Description |
 |---|---|---|---|
 | `appium:newCommandTimeout` | number (s) | base-driver default | Idle-command reaping. Drives the sidecar idle bound (`flaui:idleTimeout`) — see [stability](../02-architecture/stability.md). |
 | `ms:waitForAppLaunch` | number (s) | — | Settle delay after launch; also extends the `/session` launch wait. |
 | `ms:forcequit` | boolean | `false` | Force-quit the app on teardown (advisory). |
-| `powerShellCommandTimeout` | number (ms) | `60000` | Bound for `powershell` / `prerun`; runs out-of-scheduler, so `flaui:operationTimeout` does not bound it. |
-| `treatStderrAsError` | boolean | — | Compat flag (advisory no-op). |
-| `typeDelay` | number (ms) | — | Per-keystroke delay (advisory no-op). |
-| `smoothPointerMove` | string | — | Smooth pointer movement (advisory no-op). |
-| `delayBeforeClick` | number (ms) | — | Delay before click (advisory no-op). |
-| `delayAfterClick` | number (ms) | — | Delay after click (advisory no-op). |
-| `releaseModifierKeys` | boolean | — | Release modifier keys after input (advisory no-op). |
+| `typeDelay` | number (ms) | — | Per-keystroke delay. **Accepted but not yet applied** — keystrokes are sent without an inter-character delay. |
 | `includeContextElementInSearch` | boolean | `true` | Searches include the context element itself (e.g. `//Window` matches the session root). |
-| `convertAbsoluteXPathToRelativeFromElement` | boolean | — | XPath rewrite compat flag (advisory no-op). |
-| `isolatedScriptExecution` | boolean | — | Script isolation compat flag (advisory no-op). |
+| `convertAbsoluteXPathToRelativeFromElement` | boolean | `false` | When `true`, a find-from-element whose XPath starts with `//` is rewritten to `.//`, so a leading `//` means "from this context element" rather than "from the document root". |
 | `prerun` | object | — | `{script}`/`{command}` PowerShell run at session start. Gated by the `flauinative:power_shell` insecure feature. |
-| `postrun` | object | — | `{script}`/`{command}` PowerShell run at session end (advisory no-op). |
+| `postrun` | object | — | `{script}`/`{command}` PowerShell run at session teardown. Gated by the `flauinative:power_shell` insecure feature. |
+
+> **PowerShell timeout:** there is no `powerShellCommandTimeout` capability. Each `execute('powershell', [{script|command, timeout?}])` call takes a per-call `timeout` (ms, default **60000**); PowerShell runs out-of-scheduler, so `flaui:operationTimeout` does not bound it.

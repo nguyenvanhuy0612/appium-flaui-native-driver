@@ -68,8 +68,8 @@ describe('xpath engine', () => {
     const result = await xpathToElementIds('/Window/Edit', true, undefined, find);
 
     expect(result).to.deep.equal(['edit.1']);
-    // An absolute path's first child step is matched as child-or-self (nova2 parity), so the
-    // engine also emits an element-scope self-check find on the root.
+    // An absolute path's first child step is matched as child-or-self, so the engine also emits
+    // an element-scope self-check find on the root.
     const childFinds = ops.filter((o) => o.scope === 'children');
     expect(childFinds[0]).to.deep.equal({
       op: 'find',
@@ -97,7 +97,7 @@ describe('xpath engine', () => {
     expect(result).to.deep.equal(['li.1']);
     expect(ops).to.have.length(1);
     // ListItem maps to ControlType=ListItem ONLY (FlaUI reads the real UIA type, so there is no
-    // nova2-style ListItem|DataItem OR-alias); positional [1] is applied in TS, not the backend.
+    // ListItem|DataItem OR-alias); positional [1] is applied in TS, not the backend.
     expect(ops[0]).to.deep.equal({
       op: 'find',
       startId: AUTOMATION_ROOT_ID,

@@ -3,7 +3,7 @@
  *
  * Background — what was broken
  * ----------------------------
- * When a PowerShell command runs past `powerShellCommandTimeout`, the driver
+ * When a PowerShell command runs past its per-call `timeout`, the driver
  * force-kills the PS process tree. The OLD implementation used
  * `execSync('taskkill /F /T /PID ...')` which is SYNCHRONOUS and blocks
  * Node.js's event loop for the duration of the kill. On Windows, killing a
@@ -76,7 +76,6 @@ function buildOpts() {
             'appium:automationName': 'FlaUINative',
             'appium:app': TARGET_APP,
             'appium:shouldCloseApp': true,
-            'appium:powerShellCommandTimeout': PS_TIMEOUT_MS,
             'ms:waitForAppLaunch': 5,
         } as WebdriverIO.Capabilities,
     };
@@ -95,7 +94,7 @@ async function probeStatusOnce(): Promise<number> {
     return Date.now() - start;
 }
 
-describe('NovaWindows2 — killProcessTree non-blocking (regression)', function () {
+describe('FlaUINative — killProcessTree non-blocking (regression)', function () {
     this.timeout(120_000);
 
     let driver: Browser;
@@ -135,7 +134,7 @@ describe('NovaWindows2 — killProcessTree non-blocking (regression)', function 
         const hangPromise = axios
             .post(
                 `${sessionUrl}/execute/sync`,
-                { script: 'powershell', args: [{ script: hangScript }] },
+                { script: 'powershell', args: [{ script: hangScript, timeout: PS_TIMEOUT_MS }] },
                 {
                     timeout: PS_TIMEOUT_MS + TIMEOUT_SLACK_MS + 5_000,
                     validateStatus: () => true, // we'll inspect manually

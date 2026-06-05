@@ -20,7 +20,7 @@ const url = new URL(APPIUM_URL);
 
 const W3C_KEY = 'element-6066-11e4-a52e-4f735466cecf';
 
-describe('NovaWindows2 — wider smoke', function () {
+describe('FlaUINative — wider smoke', function () {
     this.timeout(180_000);
 
     let driver: Browser;
@@ -38,7 +38,6 @@ describe('NovaWindows2 — wider smoke', function () {
                 'appium:automationName': 'FlaUINative',
                 'appium:app': TARGET_APP,
                 'appium:shouldCloseApp': true,
-                'appium:powerShellCommandTimeout': 60_000,
                 'ms:waitForAppLaunch': 5,
             } as WebdriverIO.Capabilities,
         });

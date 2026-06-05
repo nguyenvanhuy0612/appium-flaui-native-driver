@@ -41,7 +41,7 @@ function psFromCodepoints(text: string): string {
     return parts.length === 0 ? `''` : parts.join(' + ');
 }
 
-describe('NovaWindows2 — unicode & PSString escaping', function () {
+describe('FlaUINative — unicode & PSString escaping', function () {
     this.timeout(120_000);
 
     let driver: Browser;
@@ -58,7 +58,6 @@ describe('NovaWindows2 — unicode & PSString escaping', function () {
                 'appium:automationName': 'FlaUINative',
                 'appium:app': TARGET_APP,
                 'appium:shouldCloseApp': true,
-                'appium:powerShellCommandTimeout': 60_000,
                 'ms:waitForAppLaunch': 5,
             } as WebdriverIO.Capabilities,
         });

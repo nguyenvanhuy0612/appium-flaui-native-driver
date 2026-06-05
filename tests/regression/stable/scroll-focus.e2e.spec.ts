@@ -17,7 +17,7 @@ const APPIUM_URL = process.env.APPIUM_URL ?? 'http://127.0.0.1:4723';
 const TARGET_APP = process.env.TARGET_APP ?? 'C:\\Windows\\System32\\notepad.exe';
 const url = new URL(APPIUM_URL);
 
-describe('NovaWindows2 — scroll & focus', function () {
+describe('FlaUINative — scroll & focus', function () {
     this.timeout(120_000);
 
     let driver: Browser;
@@ -34,7 +34,6 @@ describe('NovaWindows2 — scroll & focus', function () {
                 'appium:automationName': 'FlaUINative',
                 'appium:app': TARGET_APP,
                 'appium:shouldCloseApp': true,
-                'appium:powerShellCommandTimeout': 60_000,
                 'ms:waitForAppLaunch': 5,
             } as WebdriverIO.Capabilities,
         });

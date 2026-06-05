@@ -1,6 +1,6 @@
 # Locators & XPath — finder reference
 
-*Reference · updated 2026-06-04*
+*Reference · updated 2026-06-05*
 
 > The locator strategies and XPath engine the driver exposes to `findElement`/`findElements`.
 > Strategies are defined in code by `locatorStrategies` and the `propMap` in
@@ -16,7 +16,7 @@ match is scoped to the context element's subtree (the context element is include
 | Strategy | Resolves against | Notes |
 |---|---|---|
 | `accessibility id` | UIA `AutomationId` | Primary stable identifier. |
-| `id` | UIA `AutomationId` | nova2-compatible alias of `accessibility id`. |
+| `id` | UIA `AutomationId` | Alias of `accessibility id`. |
 | `name` | UIA `Name` | Display/accessible name. |
 | `class name` | UIA `ClassName` | Win32/WinUI class name. |
 | `tag name` | UIA `ControlType` | Control-type name, e.g. `Button`, `Document`, `Edit`. |

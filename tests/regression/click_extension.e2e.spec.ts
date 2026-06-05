@@ -27,7 +27,7 @@ const url = new URL(APPIUM_URL);
 
 const W3C_KEY = 'element-6066-11e4-a52e-4f735466cecf';
 
-describe('NovaWindows2 — windows: extension click commands', function () {
+describe('FlaUINative — windows: extension click commands', function () {
     this.timeout(180_000);
 
     let driver: Browser;
@@ -44,7 +44,6 @@ describe('NovaWindows2 — windows: extension click commands', function () {
                 'appium:automationName': 'FlaUINative',
                 'appium:app': TARGET_APP,
                 'appium:shouldCloseApp': true,
-                'appium:powerShellCommandTimeout': 60_000,
                 'ms:waitForAppLaunch': 5,
             } as WebdriverIO.Capabilities,
         });

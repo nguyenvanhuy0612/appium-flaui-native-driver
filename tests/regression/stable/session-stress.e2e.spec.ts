@@ -55,7 +55,6 @@ function buildOpts() {
             'appium:app': TARGET_APP,
             'appium:shouldCloseApp': true,
             // Tight timeout so a hung command surfaces fast in the test.
-            'appium:powerShellCommandTimeout': 30_000,
             'ms:waitForAppLaunch': 5,
         } as WebdriverIO.Capabilities,
     };
@@ -69,7 +68,7 @@ async function appiumStatus(): Promise<any> {
     return resp.data;
 }
 
-describe('NovaWindows2 — session-lifecycle stress', function () {
+describe('FlaUINative — session-lifecycle stress', function () {
     this.timeout(ITERATIONS * PER_ITERATION_BUDGET_MS);
 
     let firstSessionAvgMs = 0;

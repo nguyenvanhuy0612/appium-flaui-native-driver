@@ -1,7 +1,7 @@
-// XPath 1.0 engine — full nova2 parity, ported onto the structured backend op contract.
+// XPath 1.0 engine over the structured backend op contract.
 //
 // Design:
-//   - Parse the XPath string with `xpath-analyzer` (same parser nova2 uses).
+//   - Parse the XPath string with `xpath-analyzer`.
 //   - Evaluate the parsed AST against an injected `XPathBackend`:
 //       * `find`       pushes structural conditions (name test + simple attr eq/neq with and/or)
 //                      down to UIA as a `Condition` over a `TreeScope`.
@@ -9,10 +9,10 @@
 //                      following-siblings, preceding-siblings) which UIA's TreeScope cannot express.
 //       * `attributes` bulk-fetches element properties so non-structural predicates
 //                      (functions, numeric comparisons, @*, …) can be evaluated TS-side.
-//   - Structural predicates are offloaded to `find`; everything else is computed in TS over the
-//     candidate set, mirroring nova2's "PowerShell push-down + JS fallback" split.
+//   - Structural predicates are offloaded to `find` (pushed down to UIA); everything else is
+//     computed in TS over the candidate set.
 //
-// SUPPORTED (full XPath-1.0 subset matching nova2's e2e suite):
+// SUPPORTED (XPath-1.0 subset):
 //   Paths:       absolute (`/Window/Edit`), relative (`Button`, `Pane/Button`), `//` shorthand,
 //                `(...)[n]`/`(...)/steps`, unions (`//A | //B`).
 //   Axes:        child, descendant, descendant-or-self, self, parent, ancestor, ancestor-or-self,
@@ -26,7 +26,7 @@
 //   Operators:   = != < <= > >= , + - * div mod, unary -, and/or/not(), `@*` comparisons.
 //   Aliases:     lowercase tags (`//button`→Button); `appbar`(50039)/`semanticzoom`(50040)
 //                via LocalizedControlType. (Control types map 1:1 to UIA — e.g. `//list`→List,
-//                `//datagrid`→DataGrid — no nova2-style List/DataGrid OR-aliasing.)
+//                `//datagrid`→DataGrid — each control type maps to exactly one UIA type.)
 //   Position:    `//Button[1]` (per-parent positional) vs `(//Button)[1]` (grouped), `last()`,
 //                `position() = n`, `position() > n`, etc.
 //
@@ -34,7 +34,7 @@
 //   - Malformed XPath / unknown function / attribute-axis as a terminal locator → InvalidSelectorError.
 //   - Unsupported-but-valid (e.g. `//text()`) → empty result, NOT an error.
 //
-// Not implemented (documented): namespace axis (returns empty per nova2), the `id()` function
+// Not implemented (documented): namespace axis (returns empty), the `id()` function
 //   (requires an absolute-root lookup the structured contract does not surface here — throws
 //   InvalidSelectorError), and attribute-value extraction as a *result* (terminal `/@Name`).
 
@@ -255,13 +255,10 @@ function nodeNameToCondition(name: string): Condition {
     return { kind: 'true' };
   }
   const lower = name.toLowerCase();
-  // NOTE: nova2 (PowerShell backend) had to OR `list`→List|DataGrid and `listitem`→ListItem|DataItem
-  // because inspect.exe showed List/ListItem while the PowerShell/UIA path reported DataGrid/DataItem.
-  // The FlaUI backend reads the real UIA ControlType (identical to inspect.exe), so that mismatch cannot
-  // occur — `//list`/`//listitem` map to List/ListItem ONLY, and `//datagrid`/`//dataitem` match those
-  // distinct types directly. (The alias was removed 2026-06-05.)
-  // ControlType 50039 (AppBar) / 50040 (SemanticZoom) are not in the classic UIA ControlType
-  // enum; nova2 matches them via LocalizedControlType. Mirror that.
+  // The backend reads the real UIA ControlType (identical to inspect.exe), so each tag maps to exactly
+  // one type: `//list`/`//listitem` → List/ListItem, and `//datagrid`/`//dataitem` → DataGrid/DataItem.
+  // ControlType 50039 (AppBar) / 50040 (SemanticZoom) are not in the classic UIA ControlType enum, so
+  // they are matched via LocalizedControlType instead.
   if (lower === 'appbar') {
     return propertyCondition('LocalizedControlType', 'app bar');
   }
@@ -305,7 +302,7 @@ function nodeTestToCondition(test: NodeTestNode): Condition {
 
 /**
  * Normalize an attribute name to the backend's PascalCase UIA property name. Accepts common
- * nova2/Appium spellings case-insensitively; passes unknown names through verbatim.
+ * Appium spellings case-insensitively; passes unknown names through verbatim.
  */
 function normalizePropName(attr: string): string {
   const known: Record<string, string> = {
@@ -416,7 +413,7 @@ function coercePropertyValue(attr: string, value: string | number): string | num
 }
 
 /**
- * Recognize a positional predicate that selects a fixed position, à la nova2:
+ * Recognize a positional predicate that selects a fixed position:
  *   [n], [last()], [position()=n], [position()=last()], [n + arithmetic that is constant].
  * Returns the 1-based position (LAST_POSITION for last()) or undefined.
  *
@@ -501,8 +498,8 @@ class XPathExecutor {
         return dedupe([...lhs, ...rhs]);
       }
       case ABSOLUTE_LOCATION_PATH:
-        // nova2 parity: an absolute path whose first step is `child::` is matched as
-        // `child-or-self::`, so e.g. `/Pane` can select the root element itself.
+        // An absolute path whose first step is `child::` is matched as `child-or-self::`, so e.g.
+        // `/Pane` can select the root element itself.
         return this.walkSteps(node.steps, [this.rootElement()], optimizeLast, true);
       case RELATIVE_LOCATION_PATH:
         return this.walkStepsFromMany(node.steps, contexts, optimizeLast);
@@ -559,7 +556,7 @@ class XPathExecutor {
 
       if (step.axis === ATTRIBUTE) {
         // Terminal attribute step as a *locator result* is not supported (we return elements,
-        // not attribute strings). Mirror nova2: a non-terminal attribute step yields nothing.
+        // not attribute strings). A non-terminal attribute step yields nothing.
         if (i === collapsed.length - 1) {
           throw new InvalidSelectorError(
             'Attribute-axis terminal steps (e.g. /…/@Name) are not supported as element locators.',
@@ -671,7 +668,7 @@ class XPathExecutor {
     }
 
     if (axis === NAMESPACE) {
-      return []; // nova2 returns empty for the namespace axis.
+      return []; // the namespace axis never matches a UIA element → empty.
     }
 
     // Reverse / sibling / following / preceding axes — compose from walk + subtree finds.
@@ -891,7 +888,7 @@ class XPathExecutor {
     if (ns.length === 0) return ''; // empty node-set → '' in string context
     const first = ns[0];
     if (first instanceof XElement) {
-      // String-value of an element in this UIA world is empty (no text nodes), per nova2.
+      // String-value of an element in this UIA world is empty (there are no text nodes).
       return '';
     }
     return first;
@@ -942,8 +939,8 @@ class XPathExecutor {
       const other = await this.evalExpr(otherNode, ctx);
       const result = members.some((m) => scalarEquals(m, other));
       // For an empty node-set, '=' is false and '!=' is false too (no member to compare).
-      // nova2 treats `@attr != 'x'` on a missing attr as comparing '' (the scalar). Match that
-      // by falling back to scalar '' when the node-set is empty.
+      // `@attr != 'x'` on a missing attr compares against '' (the scalar), so fall back to scalar ''
+      // when the node-set is empty.
       if (members.length === 0) {
         const fallback = scalarEquals('', other);
         return eq ? fallback : !fallback;

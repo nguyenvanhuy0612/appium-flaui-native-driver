@@ -1,6 +1,6 @@
 # Clean reinstall (Windows test boxes)
 
-*Operations · updated 2026-06-04*
+*Operations · updated 2026-06-05*
 
 How to wipe and reinstall the driver cleanly. This is **faster and cleaner than
 `appium driver uninstall`**, which is slow and leaves extra files behind in `.appium`.
@@ -32,7 +32,7 @@ appium driver install --source=npm appium-flaui-native-driver@beta
 (`ri` = `Remove-Item`; `-r -fo -ea 0` = `-Recurse -Force -ErrorAction SilentlyContinue`.) Removing
 `.cache` (the manifest) and `.package-lock.json` forces Appium/npm to rebuild state fresh, so the new
 install is deterministic. Swap the package/tag for any other driver, e.g.
-`appium-novawindows2-driver@latest`.
+`appium-xcuitest-driver@latest`.
 
 ## Full wipe (clean slate for ALL drivers)
 

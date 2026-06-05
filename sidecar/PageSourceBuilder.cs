@@ -7,9 +7,9 @@ namespace FlaUiSidecar;
 
 /// <summary>
 /// Builds the page-source XML via iterative stack-based DFS (no recursion → safe on deep trees), producing
-/// a correctly NESTED tree. Tag = ControlType leaf (matches nova2's ProgrammaticName leaf, e.g. "Button").
-/// Attribute set mirrors nova2's schema: the full UIA element property list, x/y relative to the start
-/// element, and pattern-specific attributes (Window / Transform) — so nova2 XPath/tests transfer.
+/// a correctly NESTED tree. Tag = ControlType leaf (the UIA ProgrammaticName leaf, e.g. "Button").
+/// Attribute set follows the documented page-source schema: the full UIA element property list, x/y relative
+/// to the start element, and pattern-specific attributes (Window / Transform) — so the published XPath/tests transfer.
 ///
 /// Traversal and property reads are LIVE (one COM round-trip each): correct but O(props×nodes).
 /// TODO (perf): single CacheRequest pass by re-fetching the start element UNDER the active cache.
@@ -58,7 +58,7 @@ public static class PageSourceBuilder
         var tag = Safe(() => (object?)p.ControlType.ValueOrDefault)?.ToString() ?? "Custom";
         w.WriteStartElement(tag);
 
-        // nova2 attribute schema (element properties).
+        // The documented attribute schema (element properties).
         WriteAttr(w, "AcceleratorKey", Safe(() => p.AcceleratorKey.ValueOrDefault));
         WriteAttr(w, "AccessKey", Safe(() => p.AccessKey.ValueOrDefault));
         WriteAttr(w, "AutomationId", Safe(() => p.AutomationId.ValueOrDefault));
@@ -82,14 +82,14 @@ public static class PageSourceBuilder
         WriteAttr(w, "ProcessId", Safe(() => (object?)p.ProcessId.ValueOrDefault));
         WriteAttr(w, "RuntimeId", RuntimeIdOf(el));
 
-        // Coordinates relative to the start element (nova2 convention).
+        // Coordinates relative to the start element (the documented convention).
         var r = SafeRect(el);
         WriteAttr(w, "x", r.X - rootRect.X);
         WriteAttr(w, "y", r.Y - rootRect.Y);
         WriteAttr(w, "width", r.Width);
         WriteAttr(w, "height", r.Height);
 
-        // Pattern-specific attributes (only when the pattern is supported, as nova2 does).
+        // Pattern-specific attributes (only when the pattern is supported).
         var win = SafePattern(() => el.Patterns.Window.PatternOrDefault);
         if (win is not null)
         {

@@ -41,11 +41,12 @@ const constraints = {
   platformName: { isString: true, presence: true, inclusionCaseInsensitive: ['Windows'] },
   app: { isString: true },
   appTopLevelWindow: { isString: true }, // hex HWND of an existing window to attach to
-  appProcessId: { isNumber: true }, // attach to an already-running app by PID (roots at its outermost window)
-  appName: { isString: true }, // attach to an already-running app by executable name (e.g. "SecureAge")
+  appName: { isString: true }, // regex matched case-insensitively against a window TITLE to attach to
+  processName: { isString: true }, // exact exe name (case-insensitive) of a running process to attach to
   appArguments: { isString: true },
   appWorkingDir: { isString: true },
   shouldCloseApp: { isBoolean: true }, // default true
+  createSessionTimeout: { isNumber: true }, // poll budget (ms) for an attach target to appear (default 60000)
   'flaui:backend': { isString: true, inclusion: ['uia3', 'uia2'] },
   // Sidecar / stability tuning (spec §7). All optional; sane defaults applied in the sidecar.
   'flaui:connectionTimeout': { isNumber: true }, // UIA ConnectionTimeout (ms)
@@ -54,21 +55,14 @@ const constraints = {
   'flaui:elementTableMax': { isNumber: true }, // element registry cap
   'flaui:idleTimeout': { isNumber: true }, // sidecar idle self-exit (ms; default 300000, 0 disables) — orphan guard (E)
   'flaui:autoRecycle': { isBoolean: true }, // OPT-IN silent sidecar recycle on death (default FALSE — C)
-  // nova2-compat capabilities (accepted; some are advisory no-ops here — see docs/PARITY.md)
-  'ms:waitForAppLaunch': { isNumber: true },
-  'ms:forcequit': { isBoolean: true },
-  powerShellCommandTimeout: { isNumber: true },
+  'ms:waitForAppLaunch': { isNumber: true }, // optional settle delay (s) after app launch
+  'ms:forcequit': { isBoolean: true }, // force-terminate the app on session teardown
   treatStderrAsError: { isBoolean: true },
-  prerun: { isObject: true },
-  postrun: { isObject: true },
+  prerun: { isObject: true }, // PowerShell {script|command} run at createSession (gated by power_shell)
+  postrun: { isObject: true }, // PowerShell {script|command} run at deleteSession (gated by power_shell)
   typeDelay: { isNumber: true },
-  smoothPointerMove: { isString: true },
-  delayBeforeClick: { isNumber: true },
-  delayAfterClick: { isNumber: true },
-  releaseModifierKeys: { isBoolean: true },
   includeContextElementInSearch: { isBoolean: true },
   convertAbsoluteXPathToRelativeFromElement: { isBoolean: true },
-  isolatedScriptExecution: { isBoolean: true },
 } as const;
 
 type Constraints = typeof constraints;
@@ -84,7 +78,7 @@ const WINDOWS_METHOD_PREFIX = 'windowsCmd_';
 const executeMethodMap = Object.fromEntries([
   ...SUPPORTED_WINDOWS_COMMANDS.map((name) => [
     `windows: ${name}`,
-    // nova2 clients pass either {elementId} or the W3C element object key — accept both.
+    // Accept either an {elementId} or the W3C element object key for the target element.
     {
       command: `${WINDOWS_METHOD_PREFIX}${name}`,
       params: { required: [], optional: ['elementId', W3C_ELEMENT_KEY, 'value'] },
@@ -177,9 +171,9 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     const [sessionId, caps] = await super.createSession(w3cCaps1, w3cCaps2, w3cCaps3, driverData);
     const arch = process.arch === 'arm64' ? 'win-arm64' : 'win-x64';
     const exe = path.resolve(__dirname, `../../prebuilt/${arch}/FlaUiSidecar.exe`);
-    if (!this.opts.app && !this.opts.appTopLevelWindow && this.opts.appProcessId == null && !this.opts.appName) {
+    if (!this.opts.app && !this.opts.appTopLevelWindow && !this.opts.appName && !this.opts.processName) {
       throw new Error(
-        `One of 'appium:app', 'appium:appTopLevelWindow', 'appium:appProcessId' or 'appium:appName' must be provided`,
+        `One of 'appium:app', 'appium:appTopLevelWindow', 'appium:appName' or 'appium:processName' must be provided`,
       );
     }
     this.sidecarExe = exe;
@@ -196,8 +190,9 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     this.sessionBody = {
       app: this.opts.app,
       appTopLevelWindow: this.opts.appTopLevelWindow,
-      appProcessId: this.opts.appProcessId,
       appName: this.opts.appName,
+      processName: this.opts.processName,
+      createSessionTimeout: this.opts.createSessionTimeout ?? 60000,
       appArguments: this.opts.appArguments,
       appWorkingDir: this.opts.appWorkingDir,
       waitForAppLaunch: this.opts['ms:waitForAppLaunch'],
@@ -219,11 +214,11 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     // max(waitForAppLaunch,10)s) — give it that plus a generous buffer instead of the per-op timeout.
     const launchWaitMs = Math.max((this.opts['ms:waitForAppLaunch'] ?? 0) * 1000, 10_000);
     await this.sidecar.client.session(this.sessionBody, launchWaitMs + 30_000);
-    // nova2-compat: optional settle delay after app launch (seconds).
+    // Optional settle delay after app launch (seconds).
     const wait = this.opts['ms:waitForAppLaunch'];
     if (typeof wait === 'number' && wait > 0) await new Promise((r) => setTimeout(r, wait * 1000));
-    // nova2-compat: optional prerun PowerShell snippet. PowerShell is a SCOPED INSECURE feature
-    // (ADR-014): prerun executes arbitrary PowerShell, so it MUST be gated exactly like the
+    // Optional prerun PowerShell snippet, run once the session is up. PowerShell is a SCOPED INSECURE
+    // feature (ADR-014): prerun executes arbitrary PowerShell, so it MUST be gated exactly like the
     // `windows: powershell` script — fail loud if the feature is not enabled (F23).
     const prerun = this.opts.prerun as { script?: string; command?: string } | undefined;
     if (prerun?.script || prerun?.command) {
@@ -231,7 +226,6 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
       await this.op({
         op: 'powershell',
         script: prerun.script ?? prerun.command ?? '',
-        timeoutMs: this.opts.powerShellCommandTimeout,
       });
     }
     return [sessionId, caps];
@@ -239,6 +233,22 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
 
   async deleteSession(sessionId?: string, _driverData?: DriverData[]): Promise<void> {
     try {
+      // Optional postrun PowerShell snippet, run BEFORE the sidecar is stopped (mirrors how `prerun`
+      // is run at createSession). PowerShell is a SCOPED INSECURE feature (ADR-014), so it MUST be
+      // gated exactly like the `windows: powershell` script — fail loud if not enabled. Best-effort:
+      // a postrun failure must not prevent session teardown, so swallow and log any error.
+      const postrun = this.opts.postrun as { script?: string; command?: string } | undefined;
+      if (postrun?.script || postrun?.command) {
+        try {
+          this.assertFeatureEnabled('power_shell');
+          await this.op({
+            op: 'powershell',
+            script: postrun.script ?? postrun.command ?? '',
+          });
+        } catch (e) {
+          this.log.warn(`postrun PowerShell failed (ignored during teardown): ${(e as Error).message}`);
+        }
+      }
       // Close the app per shouldCloseApp (best effort), then stop the sidecar process.
       try {
         await this.sidecar?.client.deleteSession();
@@ -332,13 +342,12 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   /**
    * Per-op RPC timeout (D, nested timeouts). UIA ops get `operationTimeout + grace` so the transport sits
    * just above the sidecar's per-op watchdog. PowerShell runs out-of-scheduler and may legitimately run
-   * longer than the watchdog, so it gets its own (per-call / session / 60s default) timeout + grace.
+   * longer than the watchdog, so it gets its own (per-call / 60s default) timeout + grace.
    */
   private rpcTimeoutFor(o: BackendOp): number {
     const grace = 5_000;
     if (o.op === 'powershell') {
-      const t = (o as { timeoutMs?: number }).timeoutMs ?? this.opts.powerShellCommandTimeout ?? 60_000;
-      return t + grace;
+      return ((o as { timeoutMs?: number }).timeoutMs ?? 60_000) + grace;
     }
     return (this.operationTimeoutMs ?? 30_000) + grace;
   }
@@ -386,7 +395,7 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   /** Full backend for the XPath engine: structural finds + tree walking + attribute evaluation. */
   private readonly xpathBackend: XPathBackend = {
     find: async (op: BackendOp) => {
-      // nova2's includeContextElementInSearch (default true): descendant searches include the context
+      // includeContextElementInSearch (default true): descendant searches include the context
       // element itself — e.g. `//Window` matches the session root window.
       if (op.op === 'find' && op.scope === 'descendants' && (this.opts.includeContextElementInSearch ?? true)) {
         op = { ...op, scope: 'subtree' };
@@ -423,9 +432,23 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     context?: string,
   ): Promise<W3CElement | W3CElement[]> {
     if (strategy === 'xpath') {
+      // From-element find (a context element id is present): by default a leading `//` is W3C-absolute
+      // (resolved from the tree root, NOT the context element). With convertAbsoluteXPathToRelativeFrom-
+      // Element enabled, rewrite a leading `//` → `.//` so the search is scoped to the context element's
+      // subtree. Only a leading `//` is rewritten; an already-relative `.//` (or any other form) is left
+      // untouched, and the default (cap absent/false) keeps strict W3C semantics.
+      let xpathSelector = selector;
+      if (
+        context &&
+        this.opts.convertAbsoluteXPathToRelativeFromElement === true &&
+        xpathSelector.startsWith('//') &&
+        !xpathSelector.startsWith('.//')
+      ) {
+        xpathSelector = `.${xpathSelector}`;
+      }
       let ids: string[];
       try {
-        ids = await xpathToElementIds(selector, mult, context, this.xpathBackend);
+        ids = await xpathToElementIds(xpathSelector, mult, context, this.xpathBackend);
       } catch (e) {
         // Map the engine's InvalidSelectorError onto the W3C error (400 invalid selector).
         if ((e as Error)?.name === 'InvalidSelectorError') {
@@ -446,7 +469,7 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
 
     const propMap: Record<string, string> = {
       'accessibility id': 'AutomationId',
-      id: 'AutomationId', // nova2-compatible alias
+      id: 'AutomationId', // `id` is accepted as an alias for the AutomationId strategy
       name: 'Name',
       'class name': 'ClassName',
       'tag name': 'ControlType', // e.g. "Button", "Document"
@@ -458,7 +481,7 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
       findOp({
         startId: context ?? 'root',
         multiple: mult,
-        // 'subtree' includes the start element itself — matches nova2's default
+        // 'subtree' includes the start element itself, matching the default
         // includeContextElementInSearch:true (e.g. finding the root Window by its own ClassName).
         scope: 'subtree',
         condition: propertyCondition(prop, selector),
@@ -501,7 +524,7 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   }
 
   async click(elementId: string): Promise<void> {
-    // Real pointer click at the element's center (nova2/W3C semantics). UIA Invoke stays available
+    // Real pointer click at the element's center (W3C semantics). UIA Invoke stays available
     // separately as `windows: invoke`.
     await this.op(inputOp('click', { elementId }));
   }
@@ -566,9 +589,9 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     return res.data;
   }
 
-  // ── Clipboard (windows: setClipboard / getClipboard; plaintext base64, nova2-style) ───────
+  // ── Clipboard (windows: setClipboard / getClipboard; plaintext base64) ────────────────────
   async windowsCmd_setClipboard(b64?: string, b64Content?: string, contentType?: string): Promise<unknown> {
-    // nova2 calls this parameter `b64Content`; accept both spellings.
+    // The content is accepted under either `b64` or `b64Content`; both spellings map to the same arg.
     return this.op({ op: 'clipboard', action: 'set', b64: b64 ?? b64Content, contentType });
   }
 
@@ -695,14 +718,14 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
       const res = await this.op<{ stdout: string; stderr: string; exitCode: number }>({
         op: 'powershell',
         script: a.script ?? a.command ?? '',
-        // Per-call timeout wins; else the session cap (powerShellCommandTimeout); else the sidecar's 60s
-        // default. PowerShell runs out-of-scheduler so flaui:operationTimeout does NOT bound it — this is.
-        timeoutMs: a.timeoutMs ?? a.timeout ?? this.opts.powerShellCommandTimeout,
+        // Per-call timeout wins, else the sidecar's 60s default. PowerShell runs out-of-scheduler so
+        // flaui:operationTimeout does NOT bound it — this per-call timeout is the only cap.
+        timeoutMs: a.timeoutMs ?? a.timeout,
       });
       return res.stdout;
     }
-    // nova2-compatible execute scripts for file transfer (also reachable via the standard appium endpoints
-    // below). Each is gated as a scoped insecure feature (ADR-008), failing loud via assertFeatureEnabled.
+    // execute scripts for file transfer (also reachable via the standard appium endpoints below).
+    // Each is gated as a scoped insecure feature (ADR-008), failing loud via assertFeatureEnabled.
     if (name === 'pullFile') {
       const a = ((args as unknown[])?.[0] ?? {}) as { path?: string };
       return this.pullFile(a.path ?? '');
@@ -744,7 +767,7 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
 
   // ── W3C window commands (operate on the session root window) ──────────────────────────────
   // base-driver routes `GET /session/:id/title` to the command name `title` (see protocol/routes.js),
-  // so the method MUST be named `title`. `getTitle` is kept as an alias for internal/nova2-style callers.
+  // so the method MUST be named `title`. `getTitle` is kept as an alias for internal callers.
   async title(): Promise<string> {
     return (await this.op<{ value: string }>({ op: 'window', action: 'title' })).value;
   }
@@ -790,7 +813,7 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     return this.op(id ? { op: 'window', action: 'foreground', elementId: id } : { op: 'window', action: 'foreground' });
   }
 
-  // ── windows: app/session-level commands (nova2-compat) ────────────────────────────────────
+  // ── windows: app/session-level commands ───────────────────────────────────────────────────
   async windowsCmd_launchApp(): Promise<unknown> {
     return this.op({ op: 'app', action: 'launch' });
   }

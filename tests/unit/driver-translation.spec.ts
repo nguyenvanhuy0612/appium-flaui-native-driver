@@ -82,6 +82,56 @@ const out = {};
   }
 }
 
+// ── 6b. convertAbsoluteXPathToRelativeFromElement (from-element xpath rewrite) ────────────────
+// With a context element id present and the cap on, a leading // is rewritten to .// so the search
+// is scoped to the context subtree. The real XPath engine resolves an absolute // from the tree
+// root (find startId='root') but a relative .// from the context (startId=ctx id), so we distinguish
+// the two by the startId of the first find op the engine emits.
+{
+  // Capture the startId of the first find op the xpath engine pushes to the backend.
+  function xpathDriver(opts) {
+    const d = mk();
+    Object.assign(d.opts, opts);
+    d.firstFindStartId = undefined;
+    d.op = async (op) => {
+      if (op.op === 'find' && d.firstFindStartId === undefined) d.firstFindStartId = op.startId;
+      return { elements: [] };
+    };
+    return d;
+  }
+  out.xpathRewrite = {};
+  // (a) cap ON + leading // + context → rewritten to .// → resolves from the context element.
+  {
+    const d = xpathDriver({ convertAbsoluteXPathToRelativeFromElement: true });
+    await cap(() => d.findElOrEls('xpath', '//Button', true, 'ctx-9'));
+    out.xpathRewrite.onLeadingSlashes = d.firstFindStartId; // expect 'ctx-9'
+  }
+  // (b) cap OFF + leading // + context → NOT rewritten → W3C absolute, resolves from root.
+  {
+    const d = xpathDriver({});
+    await cap(() => d.findElOrEls('xpath', '//Button', true, 'ctx-9'));
+    out.xpathRewrite.offLeadingSlashes = d.firstFindStartId; // expect 'root'
+  }
+  // (c) cap ON but selector is already .// → left untouched (still resolves from the context).
+  {
+    const d = xpathDriver({ convertAbsoluteXPathToRelativeFromElement: true });
+    await cap(() => d.findElOrEls('xpath', './/Button', true, 'ctx-9'));
+    out.xpathRewrite.onAlreadyRelative = d.firstFindStartId; // expect 'ctx-9'
+  }
+  // (d) cap ON but a single leading / (absolute, not //) → NOT rewritten → resolves from root.
+  {
+    const d = xpathDriver({ convertAbsoluteXPathToRelativeFromElement: true });
+    await cap(() => d.findElOrEls('xpath', '/Button', true, 'ctx-9'));
+    out.xpathRewrite.onSingleSlash = d.firstFindStartId; // expect 'root'
+  }
+  // (e) cap ON + leading // but NO context element → no rewrite path → resolves from root.
+  {
+    const d = xpathDriver({ convertAbsoluteXPathToRelativeFromElement: true });
+    await cap(() => d.findElOrEls('xpath', '//Button', true));
+    out.xpathRewrite.onNoContext = d.firstFindStartId; // expect 'root'
+  }
+}
+
 // ── 7. performActions translation ─────────────────────────────────────────────────────────────
 // Stub op() to record every input op; stub getWindowRect (viewport origin) and getElementRect.
 function recordingDriver() {
@@ -270,6 +320,24 @@ describe('FlaUINativeDriver translation (find mapping, performActions, getAttrib
       expect(out.singleEmptyRuntimeId.threw).to.equal(true);
       expect(out.singleEmptyRuntimeId.name).to.equal('NoSuchElementError');
       expect(out.singleEmptyRuntimeId.msg).to.match(/accessibility id 'ghost'/);
+    });
+  });
+
+  describe('6b. convertAbsoluteXPathToRelativeFromElement (from-element xpath rewrite)', () => {
+    it('cap ON: leading // with a context element is rewritten to .// (scoped to the context)', () => {
+      expect(out.xpathRewrite.onLeadingSlashes).to.equal('ctx-9');
+    });
+    it('cap OFF (default): leading // stays W3C-absolute (resolves from the tree root)', () => {
+      expect(out.xpathRewrite.offLeadingSlashes).to.equal('root');
+    });
+    it('cap ON: an already-relative .// selector is left untouched (still from the context)', () => {
+      expect(out.xpathRewrite.onAlreadyRelative).to.equal('ctx-9');
+    });
+    it('cap ON: a single leading / (not //) is NOT rewritten (resolves from root)', () => {
+      expect(out.xpathRewrite.onSingleSlash).to.equal('root');
+    });
+    it('cap ON but no context element: nothing is rewritten (resolves from root)', () => {
+      expect(out.xpathRewrite.onNoContext).to.equal('root');
     });
   });
 

@@ -1,6 +1,6 @@
 # Security
 
-*Design · threat model · updated 2026-06-04*
+*Design · threat model · updated 2026-06-05*
 
 This page documents the driver's threat model and security posture. The short version: the posture
 is **permissive by design**, because the driver targets isolated, low-value VM environments. See
@@ -42,7 +42,7 @@ error) when the feature is off.
 
 | Capability | Scope | Power once enabled |
 | :--- | :--- | :--- |
-| `power_shell` (the `powershell` script + `appium:prerun`) | `flauinative:power_shell` | **Arbitrary code execution** on the host, with the server's privileges. Runs out-of-process (not on the UIA watchdog) but is otherwise unrestricted; bounded only by `powerShellCommandTimeout`. |
+| `power_shell` (the `powershell` script + `appium:prerun`) | `flauinative:power_shell` | **Arbitrary code execution** on the host, with the server's privileges. Runs out-of-process (not on the UIA watchdog) but is otherwise unrestricted; bounded only by the per-call `timeout` (default 60s). |
 | `pull_file` / `push_file` / `pull_folder` | `flauinative:pull_file` / `push_file` | **Unsandboxed filesystem read/write** to any path the server account can reach. |
 
 ## Deliberate non-mitigations
@@ -60,7 +60,7 @@ can disable individual features — it is not a sandbox.
 
 | Threat | Vector | Mitigation |
 | :--- | :--- | :--- |
-| Arbitrary code execution on the host | `execute('powershell', …)` or `appium:prerun` when `power_shell` is enabled | Feature-gated (`assertFeatureEnabled('power_shell')`); off unless `--relaxed-security` or scoped `flauinative:power_shell`. Time-bounded + process-tree kill via `powerShellCommandTimeout`. **Operational:** isolated VM, trusted clients only. |
+| Arbitrary code execution on the host | `execute('powershell', …)` or `appium:prerun` when `power_shell` is enabled | Feature-gated (`assertFeatureEnabled('power_shell')`); off unless `--relaxed-security` or scoped `flauinative:power_shell`. Time-bounded + process-tree kill via the per-call `timeout` (default 60s). **Operational:** isolated VM, trusted clients only. |
 | Exfiltration of host files | `execute('pullFile' / 'pullFolder', …)` when `pull_file` is enabled | Feature-gated (`assertFeatureEnabled('pull_file')`); off by default. **Operational:** isolated VM, trusted clients. No path sandbox (deliberate). |
 | Tampering / planting files on the host | `execute('pushFile', …)` when `push_file` is enabled | Feature-gated (`assertFeatureEnabled('push_file')`); off by default. **Operational:** isolated VM, trusted clients. No path sandbox (deliberate). |
 | Unauthorized network access to the endpoint | Any client reaching the Appium HTTP server | Out of the driver's scope — bind/firewall the Appium server (the sidecar itself listens only on `127.0.0.1`). |

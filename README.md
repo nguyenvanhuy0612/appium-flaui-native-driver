@@ -84,6 +84,9 @@ The driver supports the following capabilities:
 | `appium:automationName` | Must be `FlaUINative` (case-insensitive). | (Required) | `FlaUINative` |
 | `appium:app` | Path to the executable to launch, **or** the special value `Root` to attach to the whole desktop. | (None) | `C:\Windows\System32\notepad.exe`, `Root` |
 | `appium:appTopLevelWindow` | Hex handle (HWND) of an existing top-level window to attach to instead of launching. | (None) | `0x40344` |
+| `appium:appName` | Regex matched **case-insensitively against the window TITLE**; attaches to the first matching top-level window. | (None) | `SecureAge.*` |
+| `appium:processName` | Exact executable name, case-insensitive (with or without `.exe`); attaches to that process's outermost window. | (None) | `SecureAge.exe` |
+| `appium:createSessionTimeout` | Poll budget (ms) to wait for an attach target (`appTopLevelWindow`/`appName`/`processName`) to appear before failing. | `60000` | `30000` |
 | `appium:appArguments` | Arguments passed to the app on launch. | (None) | `--debug` |
 | `appium:appWorkingDir` | Working directory for the launched app. | (None) | `C:\Temp` |
 | `appium:shouldCloseApp` | Close the app's window when the session ends. | `true` | `false` |
@@ -97,11 +100,12 @@ The driver supports the following capabilities:
 | `flaui:idleTimeout` | Sidecar idle self-exit in ms (orphan guard). **By default follows `newCommandTimeout`** (`newCommandTimeout + 120s`), so setting `newCommandTimeout` alone is enough — a long inter-command wait Appium is keeping alive is never cut short. `newCommandTimeout: 0` (infinite) disables it. Set this only to override. | `newCommandTimeout + 120000` | `600000` |
 | `flaui:autoRecycle` | **Opt-in**: silently recycle + re-attach the sidecar on a transport failure. When `false` (default) a dead/unresponsive sidecar **fails the session** (`invalid session id`) so you create a new one. | `false` | `true` |
 | `appium:prerun` | `{ script }` — PowerShell to run before the session starts (requires the `power_shell` insecure feature). | (None) | `{script: '...'}` |
-| `appium:typeDelay` | Delay (ms) after each character typed (does not apply to modifier keys). | `0` | `100` |
-| `appium:releaseModifierKeys` | Release modifier keys after sending keys. | `true` | `true` |
-| `appium:powerShellCommandTimeout` | Default timeout (ms) for PowerShell execution. PowerShell runs out-of-scheduler, so `flaui:operationTimeout` does **not** bound it — this does. Overridable per call via a `timeoutMs` arg to `execute('powershell', …)`. | `60000` | `30000` |
-| `appium:smoothPointerMove` | CSS-like easing for smooth pointer movement (accepted; effect is a roadmap item). | (None) | `ease-in-out` |
-| `appium:delayBeforeClick` / `appium:delayAfterClick` | Delays (ms) around a click (accepted; effect is a roadmap item). | `0` | `500` |
+| `appium:postrun` | `{ script }` — PowerShell to run on session teardown (requires the `power_shell` insecure feature). | (None) | `{script: '...'}` |
+| `appium:typeDelay` | Per-character delay (ms). **Accepted but not yet applied** — keystrokes are sent without an inter-character delay. | `0` | `100` |
+| `appium:includeContextElementInSearch` | Searches include the context element itself. | `true` | `false` |
+| `appium:convertAbsoluteXPathToRelativeFromElement` | When `true`, a find-from-element XPath starting with `//` is rewritten to `.//` (treat a leading `//` as "from this context element"). | `false` | `true` |
+
+> **PowerShell timeout** is no longer a capability. Each `execute('powershell', [{script\|command, timeout?}])` call takes a per-call `timeout` (ms, default `60000`). PowerShell runs out-of-scheduler, so `flaui:operationTimeout` does not bound it.
 
 ---
 
@@ -153,7 +157,7 @@ in `inspect.exe`:
 | :--- | :--- | :--- |
 | `accessibility id` | The `AutomationId` attribute. | `CalculatorResults` |
 | `class name` | The `ClassName` attribute. | `TextBlock` |
-| `id` | Alias of `accessibility id` (matches `AutomationId`) for nova2 compatibility. The dotted `RuntimeId` (e.g. `42.333896.3.1`) is what the driver returns as each element's identity. | `CalculatorResults` |
+| `id` | Alias of `accessibility id` (matches `AutomationId`). The dotted `RuntimeId` (e.g. `42.333896.3.1`) is what the driver returns as each element's identity. | `CalculatorResults` |
 | `name` | The `Name` attribute. | `Calculator` |
 | `tag name` | The `ControlType` short name (e.g. `Button`, `Text`). | `Text` |
 | `xpath` | Full XPath 1.0 over any inspect-visible attribute; structural parts run as native UIA conditions. | `(//Button)[2]` |
@@ -233,8 +237,8 @@ driver.execute_script('powershell', {'command': 'Get-Process Notepad'})
 # Execute a script string
 driver.execute_script('powershell', {'script': '$p = Get-Process Notepad; $p.Kill()'})
 
-# Override the timeout for this call only (ms); else falls back to powerShellCommandTimeout, then 60s
-driver.execute_script('powershell', {'command': 'Start-Sleep 5; "done"', 'timeoutMs': 10000})
+# Set the timeout for this call (ms); defaults to 60000 if omitted
+driver.execute_script('powershell', {'command': 'Start-Sleep 5; "done"', 'timeout': 10000})
 ```
 
 ---
@@ -494,6 +498,6 @@ Start at [`docs/README.md`](docs/README.md) — a top-down reading map (overview
 
 ### Known gaps / roadmap
 `-windows uiautomation` raw-condition locator, rawView page source, active-element / `getDeviceTime`,
-`typeDelay` / smooth-pointer / `delayBeforeClick`/`delayAfterClick` effects (currently accepted no-ops), and
+the `typeDelay` per-character delay (the cap is accepted but not yet applied), and
 run-verification of the **win-arm64** prebuilt on real ARM hardware. Screen recording is **out of scope**
 (ADR-012). See [`docs/04-design/known-issues.md`](docs/04-design/known-issues.md).

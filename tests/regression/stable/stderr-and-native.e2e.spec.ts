@@ -30,14 +30,13 @@ function buildOpts(extra: Record<string, any> = {}) {
             'appium:automationName': 'FlaUINative',
             'appium:app': TARGET_APP,
             'appium:shouldCloseApp': true,
-            'appium:powerShellCommandTimeout': 30_000,
             'ms:waitForAppLaunch': 5,
             ...extra,
         } as WebdriverIO.Capabilities,
     };
 }
 
-describe('NovaWindows2 — treatStderrAsError + native exits', function () {
+describe('FlaUINative — treatStderrAsError + native exits', function () {
     this.timeout(180_000);
 
     describe('default (treatStderrAsError omitted, i.e. true)', function () {

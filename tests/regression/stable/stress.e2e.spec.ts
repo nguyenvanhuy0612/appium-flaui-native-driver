@@ -19,7 +19,7 @@ const APPIUM_URL = process.env.APPIUM_URL ?? 'http://127.0.0.1:4723';
 const TARGET_APP = process.env.TARGET_APP ?? 'Root';
 const url = new URL(APPIUM_URL);
 
-describe('NovaWindows2 — stress & robustness', function () {
+describe('FlaUINative — stress & robustness', function () {
     this.timeout(300_000);
 
     let driver: Browser;
@@ -36,7 +36,6 @@ describe('NovaWindows2 — stress & robustness', function () {
                 'appium:automationName': 'FlaUINative',
                 'appium:app': TARGET_APP,
                 'appium:shouldCloseApp': true,
-                'appium:powerShellCommandTimeout': 60_000,
                 'ms:waitForAppLaunch': 5,
             } as WebdriverIO.Capabilities,
         });

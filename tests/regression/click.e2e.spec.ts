@@ -1,5 +1,5 @@
 /**
- * Comprehensive click test — app-scoped (Notepad) NovaWindows2 session.
+ * Comprehensive click test — app-scoped (Notepad) FlaUINative session.
  *
  * Run:
  *   APPIUM_URL=http://192.168.196.128:4723 \
@@ -16,7 +16,7 @@ const TARGET_APP = process.env.TARGET_APP ?? 'C:\\Windows\\System32\\notepad.exe
 
 const url = new URL(APPIUM_URL);
 
-describe('NovaWindows2 — click (app scope: Notepad)', function () {
+describe('FlaUINative — click (app scope: Notepad)', function () {
     this.timeout(120_000);
 
     let driver: Browser;
@@ -33,7 +33,6 @@ describe('NovaWindows2 — click (app scope: Notepad)', function () {
                 'appium:automationName': 'FlaUINative',
                 'appium:app': TARGET_APP,
                 'appium:shouldCloseApp': true,
-                'appium:powerShellCommandTimeout': 60_000,
                 'ms:waitForAppLaunch': 5,
             } as WebdriverIO.Capabilities,
         });

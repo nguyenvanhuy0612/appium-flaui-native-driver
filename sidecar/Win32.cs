@@ -29,8 +29,12 @@ internal static class Win32
 
     public static bool IsForeground(IntPtr hwnd) => GetForegroundWindow() == hwnd;
 
+    /// <summary>The current foreground window's HWND (Zero if none). Used to prefer the foreground match when
+    /// resolving an appName window-title attach.</summary>
+    public static IntPtr GetForeground() => GetForegroundWindow();
+
     /// <summary>Basic activation: restore + AttachThreadInput trick + SetForegroundWindow. Used by the
-    /// `click` bring-on-top (nova2 parity — light, no topmost games).</summary>
+    /// `click` bring-on-top — a light activation, no always-on-top games.</summary>
     public static void ForceForeground(IntPtr hwnd)
     {
         if (hwnd == IntPtr.Zero) return;

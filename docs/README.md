@@ -1,6 +1,6 @@
 # Documentation
 
-*Index · reading map · updated 2026-06-04*
+*Index · reading map · updated 2026-06-05*
 
 **FlaUINative** is a standalone, W3C-first Appium 3 driver for Windows UI automation. A thin
 **TypeScript driver** speaks the WebDriver/Appium protocol and forwards **structured JSON ops**
@@ -60,7 +60,7 @@ When two docs disagree, trust in this order:
 - `subagents.md` — how the project is built by orchestrating subagents.
 
 ### archive/ — frozen historical material
-- `parity-nova2.md` — historical compatibility analysis vs the nova2 PowerShell-based driver.
+- `parity-nova2.md` — historical analysis vs an older PowerShell-based UIA driver (frozen reference).
 - `attribute-parity-startbtn.md` — attribute-parity investigation against inspect.exe (Start button case study).
 - `phase0-1-plan.md` — the original Phase 0–1 spikes-and-skeleton implementation plan (completed).
 - `release-0.1.0-beta.1.md` — the first beta release notes.

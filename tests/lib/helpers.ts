@@ -18,9 +18,11 @@ export class SessionPool {
 
   /** Create a session with the given extra caps; default app = TARGET_APP. Tracks the id for cleanup. */
   async open(extraCaps: Record<string, unknown> = {}): Promise<string> {
-    const merged = 'appium:app' in extraCaps || 'appium:appTopLevelWindow' in extraCaps
-      ? extraCaps
-      : { 'appium:app': TARGET_APP, ...extraCaps };
+    // Any explicit launch/attach cap suppresses the default app. appName (window-title regex) and
+    // processName (exact exe) are the post-redesign attach modes alongside app/appTopLevelWindow.
+    const hasTarget = ['appium:app', 'appium:appTopLevelWindow', 'appium:appName', 'appium:processName']
+      .some((k) => k in extraCaps);
+    const merged = hasTarget ? extraCaps : { 'appium:app': TARGET_APP, ...extraCaps };
     const res = await w3c.newSession(merged);
     if (res.status !== 200 || !res.value?.sessionId) {
       throw new Error(`newSession failed: ${res.status} ${res.raw?.slice(0, 300)}`);

@@ -243,6 +243,64 @@ public class OpLogicTests
     public void ParseEnum_Invalid_ThrowsInvalidArgument(string raw) =>
         Assert.Throws<InvalidArgumentException>(() => ParseEnum<SampleType>(raw));
 
+    // ── appName window-title regex matching ───────────────────────────────────────────────────────
+    [Theory]
+    [InlineData("Notepad", "Untitled - Notepad", true)]      // unanchored substring
+    [InlineData("notepad", "Untitled - Notepad", true)]      // case-insensitive
+    [InlineData("^Untitled", "Untitled - Notepad", true)]    // anchors honoured when present
+    [InlineData("^Notepad", "Untitled - Notepad", false)]    // anchored, no match
+    [InlineData("calc.*", "Calculator", true)]               // regex metacharacters
+    [InlineData("zzz", "Untitled - Notepad", false)]
+    public void MatchesAppName_UnanchoredCaseInsensitive(string pattern, string title, bool expected)
+    {
+        var rx = CompileAppNameRegex(pattern);
+        Assert.Equal(expected, MatchesAppName(rx, title));
+    }
+
+    [Fact]
+    public void MatchesAppName_NullTitle_NeverMatches() =>
+        Assert.False(MatchesAppName(CompileAppNameRegex(".*"), null));
+
+    [Theory]
+    [InlineData("(unclosed")]
+    [InlineData("[a-")]
+    [InlineData("*bad")]
+    public void CompileAppNameRegex_Invalid_ThrowsInvalidArgument(string pattern)
+    {
+        var ex = Assert.Throws<InvalidArgumentException>(() => CompileAppNameRegex(pattern));
+        Assert.Equal(W3C.InvalidArgument, ClassifyError(ex));
+    }
+
+    // ── processName normalization ─────────────────────────────────────────────────────────────────
+    [Theory]
+    [InlineData("notepad", "notepad")]
+    [InlineData("notepad.exe", "notepad")]
+    [InlineData("Notepad.EXE", "Notepad")]          // strip is case-insensitive; case otherwise preserved
+    [InlineData("  calc.exe  ", "calc")]            // trims surrounding whitespace
+    [InlineData("my.app.exe", "my.app")]            // only the trailing .exe is stripped
+    [InlineData("archiver.executable", "archiver.executable")] // not ".exe"
+    [InlineData("", "")]
+    [InlineData(null, "")]
+    public void NormalizeProcessName_StripsTrailingExe(string? input, string expected) =>
+        Assert.Equal(expected, NormalizeProcessName(input));
+
+    // ── createSessionTimeout ──────────────────────────────────────────────────────────────────────
+    [Fact]
+    public void CreateSessionTimeout_Default_WhenNullOrNonPositive()
+    {
+        Assert.Equal(60_000, CreateSessionTimeout(null).TotalMilliseconds);
+        Assert.Equal(60_000, CreateSessionTimeout(0).TotalMilliseconds);
+        Assert.Equal(60_000, CreateSessionTimeout(-5).TotalMilliseconds);
+    }
+
+    [Fact]
+    public void CreateSessionTimeout_UsesPositiveValue() =>
+        Assert.Equal(2_500, CreateSessionTimeout(2_500).TotalMilliseconds);
+
+    [Fact]
+    public void CreateSessionTimeout_HonoursCustomDefault() =>
+        Assert.Equal(1_000, CreateSessionTimeout(null, 1_000).TotalMilliseconds);
+
     // ── point / rect math ─────────────────────────────────────────────────────────────────────────
     [Fact]
     public void Center_EvenDimensions()

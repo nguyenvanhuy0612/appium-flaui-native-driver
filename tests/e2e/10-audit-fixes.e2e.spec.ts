@@ -61,13 +61,13 @@ describe('Audit fixes', function () {
   });
 
   it('F4: a slow PowerShell command is bounded and surfaces a timeout (not a hang)', async () => {
-    // powerShellCommandTimeout (ms) bounds the child; a 30s sleep with a 2s budget must time out fast.
-    const res = await w3c.newSession({ 'appium:app': TARGET_APP, 'appium:powerShellCommandTimeout': 2000 });
+    // The per-call `timeout` (ms) bounds the child; a 30s sleep with a 2s budget must time out fast.
+    const res = await w3c.newSession({ 'appium:app': TARGET_APP });
     pool.track(res.value?.sessionId);
     expect(res.status).to.equal(200);
     const sid2 = res.value.sessionId;
     const started = Date.now();
-    const ps = await w3c.execute(sid2, 'powershell', [{ command: 'Start-Sleep -Seconds 30' }]);
+    const ps = await w3c.execute(sid2, 'powershell', [{ command: 'Start-Sleep -Seconds 30', timeout: 2000 }]);
     const elapsed = Date.now() - started;
     // Must come back well under the 30s sleep — the child was killed at the ~2s budget.
     expect(elapsed, 'should be bounded, not hang for 30s').to.be.lessThan(20_000);

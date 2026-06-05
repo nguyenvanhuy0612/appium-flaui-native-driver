@@ -29,7 +29,7 @@ import { expect } from 'chai';
 const APPIUM_URL = process.env.APPIUM_URL ?? 'http://127.0.0.1:4723';
 const url = new URL(APPIUM_URL);
 
-describe('NovaWindows2 — desktop (app: Root)', function () {
+describe('FlaUINative — desktop (app: Root)', function () {
     this.timeout(120_000);
 
     let driver: Browser;
@@ -45,7 +45,6 @@ describe('NovaWindows2 — desktop (app: Root)', function () {
                 platformName: 'Windows',
                 'appium:automationName': 'FlaUINative',
                 'appium:app': 'Root',
-                'appium:powerShellCommandTimeout': 60_000,
             } as WebdriverIO.Capabilities,
         });
     });

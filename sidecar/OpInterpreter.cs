@@ -213,8 +213,8 @@ public sealed class OpInterpreter
             {
                 // Stronger/escalating activation (vs the basic focus a `click` does). Targets the given
                 // element's top-level Window/Pane when an elementId is supplied, else the session root.
-                // FlaUI-idiomatic first (nova2 used raw Win32 over PowerShell; FlaUI's own SetForeground/
-                // Focus already wrap SetForegroundWindow + thread-attach), then escalate via Win32
+                // FlaUI-idiomatic first (FlaUI's own SetForeground/Focus already wrap SetForegroundWindow +
+                // thread-attach, so prefer them over raw Win32 P/Invoke), then escalate via Win32
                 // (topmost toggle → minimize/restore) only if the window still isn't on top.
                 var target = root;
                 if (op.TryGetProperty("elementId", out var fid) && fid.GetString() is { Length: > 0 } fs)
@@ -239,7 +239,7 @@ public sealed class OpInterpreter
             case "click":
             {
                 // bringToFront (default TRUE for click) — only takes effect when an elementId is supplied.
-                if (WantsBring(args, true)) BasicBringOnTopFromArgs(args);   // nova2 parity: focus the Window/Pane ancestor first
+                if (WantsBring(args, true)) BasicBringOnTopFromArgs(args);   // focus the Window/Pane ancestor first
                 var pt = ResolvePoint(args);
                 var button = ButtonOf(args);
                 var times = args.TryGetProperty("times", out var t) ? t.GetInt32() : 1;
@@ -276,7 +276,7 @@ public sealed class OpInterpreter
                 try
                 {
                     Mouse.MoveTo(ResolvePoint(args));
-                    // durationMs: dwell at the target so hover tooltips/menus settle (nova2 default 500).
+                    // durationMs: dwell at the target so hover tooltips/menus settle (documented default 500).
                     var durationMs = args.TryGetProperty("durationMs", out var dm) ? dm.GetInt32() : 0;
                     if (durationMs > 0) Thread.Sleep(durationMs);
                 }
@@ -303,7 +303,7 @@ public sealed class OpInterpreter
                 if (WantsBring(args, false)) BasicBringOnTopFromArgs(args);
                 if (args.TryGetProperty("elementId", out _) || args.TryGetProperty("x", out _))
                     Mouse.MoveTo(ResolvePoint(args));
-                // `amount` (optional) multiplies the delta (nova2 passes raw deltas; amount is a convenience).
+                // `amount` (optional) multiplies the delta (clients may pass raw deltas; amount is a convenience).
                 var amount = args.TryGetProperty("amount", out var av) ? av.GetDouble() : 1;
                 var dy = (args.TryGetProperty("deltaY", out var dyv) ? dyv.GetDouble() : 0) * amount;
                 var dx = (args.TryGetProperty("deltaX", out var dxv) ? dxv.GetDouble() : 0) * amount;
@@ -379,7 +379,7 @@ public sealed class OpInterpreter
         }
     }
 
-    // ── bring-on-top helpers (click = basic focus, nova2 parity) ─────────────────────────────
+    // ── bring-on-top helpers (click uses a basic focus activation) ─────────────────────────────
     /// <summary>Default-aware read of the optional `bringToFront` arg. Returns <paramref name="def"/> when
     /// the arg is absent; otherwise true unless it was explicitly `false`. Per agreed policy the caller still
     /// gates the actual bring on an elementId being present (BasicBringOnTopFromArgs / the start-id check).</summary>
@@ -395,7 +395,7 @@ public sealed class OpInterpreter
             BasicBringOnTop(ResolveOrThrow(id));
     }
 
-    /// <summary>nova2-style basic activation: focus the nearest Window/Pane ancestor; if SetFocus throws
+    /// <summary>Basic activation: focus the nearest Window/Pane ancestor; if SetFocus throws
     /// (some app windows report not-focusable), fall back to a basic Win32 SetForegroundWindow. Best-effort.</summary>
     private void BasicBringOnTop(AutomationElement el)
     {
@@ -437,7 +437,7 @@ public sealed class OpInterpreter
         _ => MouseButton.Left,
     };
 
-    // ── modifier keys (ctrl|shift|alt|win) held around an input op (nova2 parity) ────────────────
+    // ── modifier keys (ctrl|shift|alt|win) held around an input op ────────────────
     // Accepts a JSON array of names or a comma-separated string. Press before, Release (reverse) after.
     private static VirtualKeyShort[] ModifiersOf(JsonElement args)
     {
@@ -479,7 +479,7 @@ public sealed class OpInterpreter
         // (no element id) = capture only, NO bring.
         // Capture.Element grabs the SCREEN region at the element's bounds — if the app window is occluded by
         // another window (common with attached/background apps), we'd capture the wrong pixels. For an
-        // explicit element capture, bring the element's top-level window to the front first (nova2 parity),
+        // explicit element capture, bring the element's top-level window to the front first,
         // then let it finish surfacing/repainting before the grab. Best-effort — never fails the screenshot.
         if (hasId)
         {
@@ -493,7 +493,7 @@ public sealed class OpInterpreter
     }
 
     /// <summary>Clipboard get/set (base64-encoded). contentType 'plaintext' (default, UTF-8 via TextCopy)
-    /// or 'image' (base64 PNG via Win32 clipboard P/Invoke + CF_DIB). nova2-compatible.</summary>
+    /// or 'image' (base64 PNG via Win32 clipboard P/Invoke + CF_DIB).</summary>
     public object Clipboard(JsonElement op)
     {
         var action = op.GetProperty("action").GetString();
@@ -575,7 +575,7 @@ public sealed class OpInterpreter
     /// best-effort <c>ScrollItem.ScrollIntoView()</c> first (bring it into view), then — when no explicit
     /// x/y offset was supplied — use <c>el.TryGetClickablePoint()</c> for the truly clickable point, falling
     /// back to the BoundingRectangle center. An explicit x/y offset is always taken relative to the rect's
-    /// top-left (nova2 semantics). Without an element id, x/y are absolute screen coordinates.</summary>
+    /// top-left (the documented offset semantics). Without an element id, x/y are absolute screen coordinates.</summary>
     private System.Drawing.Point ResolvePointPrefixed(JsonElement args, string prefix)
     {
         var elKey = prefix.Length == 0 ? "elementId" : $"{prefix}ElementId";
@@ -614,7 +614,7 @@ public sealed class OpInterpreter
             args.GetProperty(yKey).GetInt32());
     }
 
-    /// <summary>Page source as XML. Schema must match nova2. NOTE: traversal + property reads are LIVE
+    /// <summary>Page source as XML. Schema: the documented page-source schema. NOTE: traversal + property reads are LIVE
     /// (one COM round-trip per node/prop) — a single-pass CacheRequest is a TODO (see known-issues #3).</summary>
     public object Source(JsonElement op)
     {
@@ -665,7 +665,7 @@ public sealed class OpInterpreter
         };
     }
 
-    /// <summary>Build a UIA PropertyCondition for any of the nova2-allowlisted properties, converting the
+    /// <summary>Build a UIA PropertyCondition for any of the allow-listed condition properties, converting the
     /// JSON value to the property's native type (bool for Is*/HasKeyboardFocus, int for ProcessId, ...).</summary>
     private PropertyCondition BuildProperty(ConditionFactory cf, JsonElement c)
     {

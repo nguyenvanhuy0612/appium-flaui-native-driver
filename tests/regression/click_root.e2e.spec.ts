@@ -12,7 +12,7 @@ import axios from 'axios';
 const APPIUM_URL = process.env.APPIUM_URL ?? 'http://127.0.0.1:4723';
 const url = new URL(APPIUM_URL);
 
-describe('NovaWindows2 — click (Root scope: Desktop)', function () {
+describe('FlaUINative — click (Root scope: Desktop)', function () {
     this.timeout(120_000);
 
     let driver: Browser;
@@ -28,7 +28,6 @@ describe('NovaWindows2 — click (Root scope: Desktop)', function () {
                 platformName: 'Windows',
                 'appium:automationName': 'FlaUINative',
                 'appium:app': 'Root',
-                'appium:powerShellCommandTimeout': 60_000,
             } as WebdriverIO.Capabilities,
         });
     });

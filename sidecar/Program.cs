@@ -84,33 +84,48 @@ app.MapPost("/session", async (HttpRequest req) =>
         var rootWait = TimeSpan.FromSeconds(
             caps.TryGetProperty("waitForAppLaunch", out var wfa) && wfa.ValueKind == JsonValueKind.Number
                 ? Math.Max(wfa.GetDouble(), 10) : 10);
+        // Poll budget for an ATTACH target (appTopLevelWindow/appName/processName) to appear before we throw
+        // "no … found" (ms:createSessionTimeout, default 60s). The 'app' launch path keeps using rootWait.
+        var attachBudget = OpLogic.CreateSessionTimeout(
+            caps.TryGetProperty("createSessionTimeout", out var cstEl) && cstEl.ValueKind == JsonValueKind.Number
+                ? cstEl.GetDouble() : (double?)null);
 
         if (caps.TryGetProperty("appTopLevelWindow", out var h) && h.GetString() is { Length: > 0 } hex)
         {
             // Attach to an existing top-level window by HWND (hex, with or without 0x). Invalid hex is a
-            // user error → ArgumentException → W3C "invalid argument" (F17), not an opaque unknown error.
+            // user error → InvalidArgumentException → W3C "invalid argument" (F17), not an opaque unknown error.
             if (!OpLogic.TryParseHwnd(hex, out var hwnd))
                 throw new InvalidArgumentException($"appTopLevelWindow is not a valid hex HWND: '{hex}'");
-            root = automation!.FromHandle(new IntPtr(hwnd));
+            // Poll until the HWND resolves to a live element (it may not exist yet), up to the attach budget.
+            root = PollForAttach(
+                () => { try { var el = automation!.FromHandle(new IntPtr(hwnd)); _ = el.Properties.NativeWindowHandle.ValueOrDefault; return el; } catch { return null; } },
+                attachBudget, $"no window found for appTopLevelWindow '{hex}'");
             attached = true;
         }
-        else if (caps.TryGetProperty("appProcessId", out var pidEl) && pidEl.ValueKind == JsonValueKind.Number)
+        else if (caps.TryGetProperty("appName", out var anEl) && anEl.GetString() is { Length: > 0 } appNamePattern)
         {
-            // Attach to an already-running app by PID; root at its OUTERMOST window (owned/inner dialogs
-            // are UIA descendants → already in-scope). We did not launch it → never close it on teardown.
-            root = ResolveAppRoot(pidEl.GetInt32(), rootWait);
+            // Attach by WINDOW TITLE: appName is a case-insensitive, unanchored regex matched against each
+            // top-level window's Name. Prefer a visible/foreground window, newest if several. Bad regex →
+            // InvalidArgumentException ("invalid argument"). We did not launch it → never close it on teardown.
+            var rx = OpLogic.CompileAppNameRegex(appNamePattern);
+            root = PollForAttach(() => FindWindowByTitle(rx), attachBudget,
+                $"no top-level window title matches appName '{appNamePattern}'");
             attached = true;
         }
-        else if (caps.TryGetProperty("appName", out var anEl) && anEl.GetString() is { Length: > 0 } appName)
+        else if (caps.TryGetProperty("processName", out var pnEl) && pnEl.GetString() is { Length: > 0 } processNameRaw)
         {
-            var pid = FindPidByExe(appName) ?? throw new ArgumentException($"no running process matches appName '{appName}'");
-            root = ResolveAppRoot(pid, rootWait);
+            // Attach by EXACT executable name (case-insensitive, trailing ".exe" optional). Prefer the newest
+            // process that has a visible main window; root at its OUTERMOST window. Not launched → never close.
+            var exe = OpLogic.NormalizeProcessName(processNameRaw);
+            root = PollForAttach(
+                () => { var pid = FindPidByProcessName(exe); return pid is int p ? ResolveAppRoot(p, rootWait) : null; },
+                attachBudget, $"no running process matches processName '{processNameRaw}'");
             attached = true;
         }
         else if (caps.TryGetProperty("app", out var appEl) &&
                  string.Equals(appEl.GetString(), "Root", StringComparison.OrdinalIgnoreCase))
         {
-            // Desktop session: the whole desktop tree is the root (nova2's `app: 'Root'`).
+            // Desktop session: the whole desktop tree is the root (the `app: 'Root'` mode).
             root = automation!.GetDesktop();
             bringToFront = false; // no single app window to foreground for a whole-desktop session
         }
@@ -239,16 +254,77 @@ int ChildCountSafe(FlaUI.Core.AutomationElements.AutomationElement w)
 int? FindPidByExe(string nameOrPath)
 {
     var exe = System.IO.Path.GetFileNameWithoutExtension(nameOrPath);
+    return FindPidByProcessName(exe);
+}
+
+// Pick a PID by EXACT process name (already normalized: no path, ".exe" stripped). Prefers the newest
+// process (by StartTime) that has a visible main window; falls back to the newest overall, then any.
+// Case-insensitivity is provided by Process.GetProcessesByName itself. Null if no such process.
+int? FindPidByProcessName(string exe)
+{
     if (string.IsNullOrEmpty(exe)) return null;
     var procs = System.Diagnostics.Process.GetProcessesByName(exe);
     if (procs.Length == 0) return null;
-    System.Diagnostics.Process? best = null;
+    System.Diagnostics.Process? bestVisible = null, bestAny = null;
     foreach (var p in procs)
     {
-        try { if (best is null || p.StartTime > best.StartTime) best = p; }
-        catch { best ??= p; }
+        try
+        {
+            if (bestAny is null || p.StartTime > bestAny.StartTime) bestAny = p;
+            if (p.MainWindowHandle != IntPtr.Zero && (bestVisible is null || p.StartTime > bestVisible.StartTime))
+                bestVisible = p;
+        }
+        catch { bestAny ??= p; }
     }
-    return best?.Id;
+    return (bestVisible ?? bestAny)?.Id;
+}
+
+// Find a top-level window (desktop child Window/Pane) whose Name (title) matches the appName regex. Prefers
+// a VISIBLE / foreground window, newest (highest native handle ≈ most-recently-created) if several match.
+// Returns null when nothing matches yet (the caller polls). FlaUI-bound, so it stays in Program.cs.
+FlaUI.Core.AutomationElements.AutomationElement? FindWindowByTitle(System.Text.RegularExpressions.Regex rx)
+{
+    FlaUI.Core.AutomationElements.AutomationElement[] tops;
+    try
+    {
+        tops = automation!.GetDesktop().FindAllChildren(cf =>
+            cf.ByControlType(FlaUI.Core.Definitions.ControlType.Window)
+              .Or(cf.ByControlType(FlaUI.Core.Definitions.ControlType.Pane)));
+    }
+    catch { return null; }
+
+    var matches = tops.Where(w => { try { return OpLogic.MatchesAppName(rx, w.Properties.Name.ValueOrDefault); } catch { return false; } }).ToArray();
+    if (matches.Length == 0) return null;
+    // Prefer the foreground window if it is among the matches; otherwise the newest visible; else the newest.
+    var fg = Win32.GetForeground().ToInt64();
+    var foreground = matches.FirstOrDefault(w => HandleOf(w) == fg && fg != 0);
+    if (foreground is not null) return foreground;
+    var visible = matches.Where(IsOffscreenSafe).ToArray();
+    var pool = visible.Length > 0 ? visible : matches;
+    return pool.OrderByDescending(HandleOf).First();
+}
+
+// True when a window is on-screen (NOT offscreen) per UIA — used to prefer visible appName matches.
+bool IsOffscreenSafe(FlaUI.Core.AutomationElements.AutomationElement w)
+{
+    try { return !w.Properties.IsOffscreen.ValueOrDefault; } catch { return true; }
+}
+
+// Poll a resolver (returns the resolved root or null when the target isn't up yet) on a ~250ms interval up
+// to the attach budget. Throws ArgumentException(notFoundMsg) → W3C "invalid selector" once the budget is
+// spent and nothing surfaced. A budget of 0/negative still makes one attempt.
+FlaUI.Core.AutomationElements.AutomationElement PollForAttach(
+    Func<FlaUI.Core.AutomationElements.AutomationElement?> resolve, TimeSpan budget, string notFoundMsg)
+{
+    var deadline = DateTime.UtcNow + budget;
+    while (true)
+    {
+        var hit = resolve();
+        if (hit is not null) return hit;
+        if (DateTime.UtcNow >= deadline) break;
+        System.Threading.Thread.Sleep(250);
+    }
+    throw new ArgumentException(notFoundMsg);
 }
 
 app.MapPost("/op", async (HttpRequest req) =>
@@ -319,7 +395,7 @@ object HandleApp(JsonElement op)
 // PowerShell child process, BOUNDED (F4): stdin write + stdout/stderr reads run concurrently to avoid the
 // redirect-pipe deadlock (a child filling its stdout pipe blocks until the parent drains it); the whole
 // thing is under a CancellationTokenSource so a runaway script is killed (entire process tree) and mapped
-// to a W3C "timeout" error. Timeout = op.timeoutMs (flaui powerShellCommandTimeout) or 60s default.
+// to a W3C "timeout" error. Timeout = the per-call op.timeoutMs when present, else a 60s default.
 async Task<IResult> RunPowerShell(JsonElement op)
 {
     var timeout = op.TryGetProperty("timeoutMs", out var tm) && tm.ValueKind == JsonValueKind.Number

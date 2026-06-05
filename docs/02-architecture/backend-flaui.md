@@ -1,6 +1,6 @@
 # The FlaUI / UIA3 Engine
 
-*Architecture · updated 2026-06-04*
+*Architecture · updated 2026-06-05*
 
 > **Layer:** backend internals — what the C# sidecar actually uses to drive Windows UI.
 > For the high-level two-process picture see [architecture overview](./overview.md); for the wire-level
@@ -21,7 +21,7 @@ Grounded in `sidecar/OpInterpreter.cs`, `sidecar/PropertyResolver.cs`,
 
 ## Why FlaUI / UIA3
 
-A reference driver like nova2 drives UIA through **PowerShell + `System.Windows.Automation`** (the
+A common way to drive Windows UIA is through **PowerShell + `System.Windows.Automation`** (the
 managed **UIA2** client). FlaUI on **UIA3** (the COM `UIAutomationCore` client) is strictly more
 capable: a **strongly-typed** C# API (`el.Patterns.Value.Pattern.Value`, `el.Properties.Name`), the
 `ConnectionTimeout` / `TransactionTimeout` anti-hang knobs that UIA2-managed lacks, first-class support
@@ -153,7 +153,7 @@ Values are coerced to the property's native type (bool for `Is*`/`HasKeyboardFoc
 `OpInterpreter.Walk` exposes `parent` / `ancestors` / `following-siblings` / `preceding-siblings` for
 XPath reverse/sibling axes, and `TopLevelWindow` walks parents to the nearest Window/Pane ancestor for
 foreground/bring-on-top. `PageSourceBuilder` builds page source by **live** iterative DFS over
-`FindAllChildren()` (control view), tag = `ControlType`, attributes mirroring the nova2 schema plus
+`FindAllChildren()` (control view), tag = `ControlType`, with the full UIA property set plus
 start-relative `x`/`y` and Window/Transform pattern attributes.
 
 ---
