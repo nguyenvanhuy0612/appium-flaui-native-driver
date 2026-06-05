@@ -33,6 +33,15 @@ already shipped (E).
 Features the C# backend can already support but that are **not yet wired** through to the driver — see
 [backend (FlaUI) — not yet wired](../02-architecture/backend-flaui.md#not-yet-wired-gaps).
 
+## Pattern-command verification (beta)
+
+The six `windows:` pattern verbs without prior e2e coverage were spot-checked on beta.16 against a WinForms
+fixture (`tests/e2e/12-patterns.e2e.spec.ts`, currently `describe.skip` — fixture pipeline paused for beta;
+real-app issues raised as found). Result 2026-06-05: **expand, collapse, addToSelection, allSelectedItems,
+close — verified PASS**. **`removeFromSelection`** did not deselect the item on a multi-select ListView —
+**unconfirmed**: could be a driver bug or a UIA-provider quirk; verify on a real multi-select control during
+beta before claiming it as supported.
+
 ## Roadmap
 
 Outstanding roadmap items (absorbed from the former NEXT-STEPS):

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- UIA-visible WinForms app used by tests/e2e/12-patterns.e2e.spec.ts to exercise the driver's UIA
+       pattern commands (ExpandCollapse, Selection/SelectionItem, Window). It surfaces three controls
+       with stable AutomationIds: a collapsed TreeView (treeMain) for ExpandCollapsePattern, a
+       multi-select ListBox (listMulti) for Selection/SelectionItem, and a button (btnOpenDialog) that
+       opens a non-modal child Window for WindowPattern. NOT part of the main sidecar project;
+       built/published standalone (see the spec header / report for the publish recipe). -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>ControlsApp</AssemblyName>
+  </PropertyGroup>
+
+</Project>
