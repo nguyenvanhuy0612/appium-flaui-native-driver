@@ -76,18 +76,15 @@ appium driver install --source=local /path/to/appium-flaui-native-driver
 
 ## ⚙️ Configuration
 
-The driver supports the following capabilities:
-
-Capabilities are grouped into **session & app** (`platformName` + `appium:`), **Windows-compat** (`ms:`),
-and **FlaUI engine tuning** (`flaui:`).
-
-### Session & app (`appium:`)
+The driver supports the following capabilities, grouped by prefix in order — **`appium:`** (session & app)
+→ **`ms:`** (Windows-compat) → **`flaui:`** (engine tuning):
 
 | Capability | Description | Default | Example |
 | :--- | :--- | :--- | :--- |
+| **▸ Session & app (`appium:`)** | | | |
 | `platformName` | Must be `Windows` (case-insensitive). | (Required) | `Windows` |
 | `appium:automationName` | Must be `FlaUINative` (case-insensitive). | (Required) | `FlaUINative` |
-| `appium:app` | Path to the executable to **launch** (or `Root` for the whole desktop). The driver owns a launched app and closes it on session end. | (None) | `C:\Windows\System32\notepad.exe`, `Root` |
+| `appium:app` | Path to the executable to **launch** (or `Root` for the whole desktop). The driver owns a launched app and closes it on session end. | (None) | `C:\Windows\System32\notepad.exe` |
 | `appium:appTopLevelWindow` | Attach to an existing window by hex HWND. | (None) | `0x40344` |
 | `appium:appName` | Attach to a running app whose **window TITLE** matches this **regex** (case-insensitive). | (None) | `.*Notepad` |
 | `appium:processName` | Attach to a running app by **exact exe name** (case-insensitive, `.exe` optional). | (None) | `notepad.exe` |
@@ -100,36 +97,27 @@ and **FlaUI engine tuning** (`flaui:`).
 | `appium:typeDelay` | Per-character delay (ms). **Accepted but not yet applied.** | `0` | `100` |
 | `appium:includeContextElementInSearch` | Find-from-element searches include the context element itself. | `true` | `false` |
 | `appium:convertAbsoluteXPathToRelativeFromElement` | When `true`, a find-from-element XPath starting with `//` is rewritten to `.//` (treat a leading `//` as "from this context element"). | `false` | `true` |
+| **▸ Windows-compat (`ms:`)** | | | |
+| `ms:waitForAppLaunch` | Seconds to wait after **launch** for the app's window to appear. | `0` | `3` |
+| `ms:forcequit` | Kill the app process (instead of a graceful close) on session deletion. | `false` | `true` |
+| **▸ FlaUI engine tuning (`flaui:`)** — tune the C# FlaUI/UIA3 sidecar; defaults are safe | | | |
+| `flaui:backend` | UI Automation API: `uia3` = modern COM UIA (full pattern set, recommended); `uia2` = managed wrapper — try only if a legacy control misbehaves under UIA3. | `uia3` | `uia2` |
+| `flaui:operationTimeout` | **Main per-op watchdog (ms)** — every UIA op must finish within this or it's aborted as `timeout` and the worker recycled (the core anti-hang bound). Raise for legitimately slow ops. | `30000` | `30000` |
+| `flaui:connectionTimeout` / `flaui:transactionTimeout` | Low-level UIA COM timeouts (ms), kept *below* the watchdog so a stuck COM call bails on its own first. Rarely tuned. | `min(20000, opTimeout−5000)` | `5000` |
+| `flaui:elementTableMax` | Size of the sidecar's RuntimeId→element cache (FIFO). Bump for huge trees / very long sessions. | (sidecar default) | `5000` |
+| `flaui:idleTimeout` | Sidecar self-exits after this idle time (orphan guard). Defaults to `newCommandTimeout + 120s`, so setting `newCommandTimeout` alone suffices; `newCommandTimeout: 0` disables it. | `newCommandTimeout + 120000` | `600000` |
+| `flaui:autoRecycle` | **Opt-in.** `true` = silently recycle the sidecar on a transport failure. `false` (default) = a dead sidecar **fails the session** (`invalid session id`) so you start a fresh one. | `false` | `true` |
 
 > One of `app` / `appTopLevelWindow` / `appName` / `processName` is required. When several are given, the
 > attach target resolves in order **`appTopLevelWindow` → `processName` → `appName` → `app` → `Root`**
 > (exact identifiers before fuzzy patterns).
 >
+> The `flaui:` timeout caps form the nested anti-hang chain (**UIA < watchdog < RPC < hard-deadline**) —
+> see [`docs/02-architecture/stability.md`](docs/02-architecture/stability.md).
+>
 > **PowerShell timeout** is not a capability — each `execute('powershell', [{script\|command, timeout?}])`
 > call takes a per-call `timeout` (ms, default `60000`). PowerShell runs out-of-scheduler, so
 > `flaui:operationTimeout` does not bound it.
-
-### Windows compatibility (`ms:`)
-
-| Capability | Description | Default | Example |
-| :--- | :--- | :--- | :--- |
-| `ms:waitForAppLaunch` | Seconds to wait after **launch** for the app's window to appear. | `0` | `3` |
-| `ms:forcequit` | Kill the app process (instead of a graceful close) on session deletion. | `false` | `true` |
-
-### FlaUI engine tuning (`flaui:`)
-
-These tune the **C# FlaUI / UIA3 sidecar** — the backend process that does the actual UI Automation.
-Defaults are safe; most sessions never set any of these. The timeout caps form the nested anti-hang chain
-(**UIA timeouts < watchdog < RPC < hard-deadline**) — see [`docs/02-architecture/stability.md`](docs/02-architecture/stability.md).
-
-| Capability | What it does / when to tune | Default |
-| :--- | :--- | :--- |
-| `flaui:backend` | Which UI Automation API the sidecar uses. `uia3` = the modern COM UIA (full pattern set, recommended); `uia2` = the managed UIA wrapper — try only if a legacy control misbehaves under UIA3. | `uia3` |
-| `flaui:operationTimeout` | **The main per-op watchdog (ms).** Every UIA operation must finish within this or it's aborted as a `timeout` and the worker is recycled — the core anti-hang bound. Raise it if you have legitimately slow operations. | `30000` |
-| `flaui:connectionTimeout` / `flaui:transactionTimeout` | Low-level UIA COM timeouts (ms), kept *below* the watchdog so a stuck COM call bails on its own first. Rarely tuned. | `min(20000, operationTimeout−5000)` |
-| `flaui:elementTableMax` | Size of the sidecar's RuntimeId→element cache (FIFO). Bump it for huge UI trees or very long sessions. | (sidecar default) |
-| `flaui:idleTimeout` | Sidecar self-exits after this idle time (orphan guard). Defaults to `newCommandTimeout + 120s`, so setting `newCommandTimeout` alone is enough; `newCommandTimeout: 0` disables it. | `newCommandTimeout + 120000` |
-| `flaui:autoRecycle` | **Opt-in.** When `true`, silently recycle the sidecar on a transport failure. Default `false` = a dead/unresponsive sidecar **fails the session** (`invalid session id`) so you start a fresh one. | `false` |
 
 ---
 
