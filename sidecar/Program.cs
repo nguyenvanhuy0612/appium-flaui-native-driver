@@ -134,32 +134,26 @@ app.MapPost("/session", async (HttpRequest req) =>
         else
         {
             appPath = caps.GetProperty("app").GetString()!;
-            // Attach-or-launch (the classic desktop case): if the app is ALREADY running, attach to it —
-            // this transparently handles single-instance apps whose fresh launch would
-            // just hand off to the running instance and exit. Otherwise, launch it.
-            var existing = FindPidByExe(appPath);
-            if (existing is int epid)
+            // `app` = LAUNCH the application (open a new process). Attaching to a RUNNING app is the job of the
+            // dedicated attach modes (processName / appName / appTopLevelWindow); `app` must NOT silently
+            // attach to an existing instance (that broke multi-instance apps like Notepad). The ONE exception
+            // is a single-instance app: a second launch is handed off to the running instance and the new
+            // process exits without its own window — ResolveAppRoot fails fast once that PID is gone, so we
+            // fall back to attaching the survivor. (Appium is flexible, not strict.)
+            var psi = new System.Diagnostics.ProcessStartInfo(appPath)
             {
-                root = ResolveAppRoot(epid, rootWait);
-                attached = true;
-            }
-            else
+                Arguments = caps.TryGetProperty("appArguments", out var aa) ? aa.GetString() ?? string.Empty : string.Empty,
+                WorkingDirectory = caps.TryGetProperty("appWorkingDir", out var wd) ? wd.GetString() ?? string.Empty : string.Empty,
+                UseShellExecute = true,
+            };
+            launchedApp = Application.Launch(psi);
+            try { root = ResolveAppRoot(launchedApp.ProcessId, rootWait); }
+            catch
             {
-                var psi = new System.Diagnostics.ProcessStartInfo(appPath)
-                {
-                    Arguments = caps.TryGetProperty("appArguments", out var aa) ? aa.GetString() ?? string.Empty : string.Empty,
-                    WorkingDirectory = caps.TryGetProperty("appWorkingDir", out var wd) ? wd.GetString() ?? string.Empty : string.Empty,
-                    UseShellExecute = true,
-                };
-                launchedApp = Application.Launch(psi);
-                try { root = ResolveAppRoot(launchedApp.ProcessId, rootWait); }
-                catch
-                {
-                    // Launched process handed off & exited (single-instance race): attach to the survivor.
-                    var alt = FindPidByExe(appPath) ?? throw new ArgumentException($"app launched but no window appeared for '{appPath}'");
-                    root = ResolveAppRoot(alt, rootWait);
-                    launchedApp = null; attached = true; // we no longer own the surviving instance
-                }
+                // Single-instance hand-off: the launched process exited without a window → attach the survivor.
+                var alt = FindPidByExe(appPath) ?? throw new ArgumentException($"app launched but no window appeared for '{appPath}'");
+                root = ResolveAppRoot(alt, rootWait);
+                launchedApp = null; attached = true; // we no longer own the surviving instance
             }
         }
         return interp!.OpenSession(root, bringToFront);
