@@ -81,7 +81,6 @@ The driver supports the following capabilities, grouped by prefix in order — *
 
 | Capability | Description | Default | Example |
 | :--- | :--- | :--- | :--- |
-| **▸ Session & app (`appium:`)** | | | |
 | `platformName` | Must be `Windows` (case-insensitive). | (Required) | `Windows` |
 | `appium:automationName` | Must be `FlaUINative` (case-insensitive). | (Required) | `FlaUINative` |
 | `appium:app` | Path to the executable to **launch** (or `Root` for the whole desktop). The driver owns a launched app and closes it on session end. | (None) | `C:\Windows\System32\notepad.exe` |
@@ -97,10 +96,8 @@ The driver supports the following capabilities, grouped by prefix in order — *
 | `appium:typeDelay` | Per-character delay (ms). **Accepted but not yet applied.** | `0` | `100` |
 | `appium:includeContextElementInSearch` | Find-from-element searches include the context element itself. | `true` | `false` |
 | `appium:convertAbsoluteXPathToRelativeFromElement` | When `true`, a find-from-element XPath starting with `//` is rewritten to `.//` (treat a leading `//` as "from this context element"). | `false` | `true` |
-| **▸ Windows-compat (`ms:`)** | | | |
 | `ms:waitForAppLaunch` | Seconds to wait after **launch** for the app's window to appear. | `0` | `3` |
 | `ms:forcequit` | Kill the app process (instead of a graceful close) on session deletion. | `false` | `true` |
-| **▸ FlaUI engine tuning (`flaui:`)** — tune the C# FlaUI/UIA3 sidecar; defaults are safe | | | |
 | `flaui:backend` | UI Automation API: `uia3` = modern COM UIA (full pattern set, recommended); `uia2` = managed wrapper — try only if a legacy control misbehaves under UIA3. | `uia3` | `uia2` |
 | `flaui:operationTimeout` | **Main per-op watchdog (ms)** — every UIA op must finish within this or it's aborted as `timeout` and the worker recycled (the core anti-hang bound). Raise for legitimately slow ops. | `30000` | `30000` |
 | `flaui:connectionTimeout` / `flaui:transactionTimeout` | Low-level UIA COM timeouts (ms), kept *below* the watchdog so a stuck COM call bails on its own first. Rarely tuned. | `min(20000, opTimeout−5000)` | `5000` |
@@ -108,16 +105,19 @@ The driver supports the following capabilities, grouped by prefix in order — *
 | `flaui:idleTimeout` | Sidecar self-exits after this idle time (orphan guard). Defaults to `newCommandTimeout + 120s`, so setting `newCommandTimeout` alone suffices; `newCommandTimeout: 0` disables it. | `newCommandTimeout + 120000` | `600000` |
 | `flaui:autoRecycle` | **Opt-in.** `true` = silently recycle the sidecar on a transport failure. `false` (default) = a dead sidecar **fails the session** (`invalid session id`) so you start a fresh one. | `false` | `true` |
 
-> One of `app` / `appTopLevelWindow` / `appName` / `processName` is required. When several are given, the
-> attach target resolves in order **`appTopLevelWindow` → `processName` → `appName` → `app` → `Root`**
-> (exact identifiers before fuzzy patterns).
->
-> The `flaui:` timeout caps form the nested anti-hang chain (**UIA < watchdog < RPC < hard-deadline**) —
-> see [`docs/02-architecture/stability.md`](docs/02-architecture/stability.md).
->
-> **PowerShell timeout** is not a capability — each `execute('powershell', [{script\|command, timeout?}])`
-> call takes a per-call `timeout` (ms, default `60000`). PowerShell runs out-of-scheduler, so
-> `flaui:operationTimeout` does not bound it.
+> [!NOTE]
+> - **A target is required** — exactly one of `app` / `appTopLevelWindow` / `appName` / `processName`. When
+>   several are given, the attach target resolves **`appTopLevelWindow` → `processName` → `appName` → `app`
+>   → `Root`** (exact identifiers before fuzzy patterns).
+> - **App lifecycle** — `app` *launches* the app and **closes it** on session end (the driver owns it; unless
+>   `shouldCloseApp: false`, and `ms:forcequit` kills instead of closing). `appTopLevelWindow` / `appName` /
+>   `processName` *attach* to a running app and **leave it running**.
+> - **PowerShell timeout is per-call**, not a capability: `execute('powershell', [{script\|command, timeout?}])`
+>   (default `60000` ms). PowerShell runs out-of-scheduler, so `flaui:operationTimeout` does **not** bound it.
+> - **`flaui:` caps tune the sidecar** — most sessions never set any. The timeout ones form the nested
+>   anti-hang chain (**UIA < watchdog < RPC < hard-deadline**), see
+>   [`docs/02-architecture/stability.md`](docs/02-architecture/stability.md).
+> - **Prefixes:** `ms:` = WinAppDriver-compatible names · `flaui:` = engine tuning · `appium:` = standard/session.
 
 ---
 
