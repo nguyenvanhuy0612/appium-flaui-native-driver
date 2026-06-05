@@ -32,8 +32,8 @@ Attach to an already-running app instead of launching one. Use exactly one.
 | Capability | Type | Default | Description |
 |---|---|---|---|
 | `appTopLevelWindow` | string | — | Attach to a running window by hex HWND (e.g. `0x000A1234`). |
-| `appName` | string | — | Regex matched **case-insensitively against the window TITLE** (e.g. `SecureAge.*`); attaches to the first matching top-level window. |
-| `processName` | string | — | Exact executable name, case-insensitive (with or without `.exe`, e.g. `SecureAge` / `SecureAge.exe`); attaches to that process's outermost window. |
+| `appName` | string | — | Regex matched **case-insensitively against the window TITLE** (e.g. `.*Notepad`); attaches to the first matching top-level window. |
+| `processName` | string | — | Exact executable name, case-insensitive (with or without `.exe`, e.g. `notepad` / `notepad.exe`); attaches to that process's outermost window. |
 
 ### Attach precedence
 

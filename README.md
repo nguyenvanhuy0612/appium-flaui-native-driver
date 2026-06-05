@@ -84,8 +84,8 @@ The driver supports the following capabilities:
 | `appium:automationName` | Must be `FlaUINative` (case-insensitive). | (Required) | `FlaUINative` |
 | `appium:app` | Path to the executable to launch, **or** the special value `Root` to attach to the whole desktop. | (None) | `C:\Windows\System32\notepad.exe`, `Root` |
 | `appium:appTopLevelWindow` | Hex handle (HWND) of an existing top-level window to attach to instead of launching. | (None) | `0x40344` |
-| `appium:appName` | Regex matched **case-insensitively against the window TITLE**; attaches to the first matching top-level window. | (None) | `SecureAge.*` |
-| `appium:processName` | Exact executable name, case-insensitive (with or without `.exe`); attaches to that process's outermost window. | (None) | `SecureAge.exe` |
+| `appium:appName` | Regex matched **case-insensitively against the window TITLE**; attaches to the first matching top-level window. | (None) | `.*Notepad` |
+| `appium:processName` | Exact executable name, case-insensitive (with or without `.exe`); attaches to that process's outermost window. | (None) | `notepad.exe` |
 | `appium:createSessionTimeout` | Poll budget (ms) to wait for an attach target (`appTopLevelWindow`/`appName`/`processName`) to appear before failing. | `60000` | `30000` |
 | `appium:appArguments` | Arguments passed to the app on launch. | (None) | `--debug` |
 | `appium:appWorkingDir` | Working directory for the launched app. | (None) | `C:\Temp` |
