@@ -96,20 +96,24 @@ describe('xpath engine', () => {
 
     expect(result).to.deep.equal(['li.1']);
     expect(ops).to.have.length(1);
-    // ListItem maps to (ListItem OR DataItem); positional [1] is applied in TS, not the backend.
+    // ListItem maps to ControlType=ListItem ONLY (FlaUI reads the real UIA type, so there is no
+    // nova2-style ListItem|DataItem OR-alias); positional [1] is applied in TS, not the backend.
     expect(ops[0]).to.deep.equal({
       op: 'find',
       startId: AUTOMATION_ROOT_ID,
       multiple: true,
       scope: 'descendants',
-      condition: {
-        kind: 'or',
-        children: [
-          { kind: 'property', prop: 'ControlType', value: 'ListItem' },
-          { kind: 'property', prop: 'ControlType', value: 'DataItem' },
-        ],
-      },
+      condition: { kind: 'property', prop: 'ControlType', value: 'ListItem' },
     });
+  });
+
+  it('//DataGrid and //DataItem map to their own distinct ControlType (no List alias)', async () => {
+    const { ops, find } = makeFake(() => ['dg.1']);
+    await xpathToElementIds('//DataGrid', true, undefined, find);
+    expect(ops[0].condition).to.deep.equal({ kind: 'property', prop: 'ControlType', value: 'DataGrid' });
+    ops.length = 0;
+    await xpathToElementIds('//DataItem', true, undefined, find);
+    expect(ops[0].condition).to.deep.equal({ kind: 'property', prop: 'ControlType', value: 'DataItem' });
   });
 
   it('positional [last()] picks the final element', async () => {

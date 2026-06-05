@@ -45,7 +45,7 @@ function n(
  *      └─ List#list  (List)
  *           ├─ ListItem#li1 (Name="Alpha")
  *           ├─ ListItem#li2 (Name="Beta")
- *           └─ DataItem#di3 (Name="Gamma")
+ *           └─ ListItem#di3 (Name="Gamma")
  */
 const win = n(
   'win',
@@ -69,7 +69,7 @@ const win = n(
     n('list', 'List', { Name: '' }, [
       n('li1', 'ListItem', { Name: 'Alpha' }),
       n('li2', 'ListItem', { Name: 'Beta' }),
-      n('di3', 'DataItem', { Name: 'Gamma' }),
+      n('di3', 'ListItem', { Name: 'Gamma' }),
     ]),
   ],
 );
@@ -233,7 +233,7 @@ describe('xpath full engine (in-memory tree)', () => {
       // root is a Pane (the sidecar root sentinel); window is its only child.
       expect(await ids('/Pane/Window')).to.deep.equal(['win']);
     });
-    it('relative path from context (ListItem alias also matches DataItem)', async () => {
+    it('relative path from context', async () => {
       expect(await ids('ListItem', true, 'list')).to.deep.equal(['li1', 'li2', 'di3']);
     });
     it('union dedupes', async () => {
@@ -452,7 +452,7 @@ describe('xpath full engine (in-memory tree)', () => {
       expect(r.length).to.be.greaterThan(0);
     });
     it('count of children node-set', async () => {
-      // list has 3 ListItem/DataItem children (ListItem alias includes DataItem).
+      // list has 3 ListItem children.
       expect(await ids('//*[count(ListItem) = 3]')).to.deep.equal(['list']);
     });
     it('last() in predicate', async () => {
@@ -492,14 +492,11 @@ describe('xpath full engine (in-memory tree)', () => {
     it('lowercase //edit', async () => {
       expect(await ids('//edit')).to.deep.equal(['editor']);
     });
-    it('//list -> List|DataGrid', async () => {
+    it('//list -> List (no DataGrid alias)', async () => {
       expect(await ids('//list')).to.deep.equal(['list']);
     });
-    it('//listitem -> ListItem|DataItem', async () => {
+    it('//listitem -> ListItem (no DataItem alias)', async () => {
       expect(await ids('//listitem')).to.deep.equal(['li1', 'li2', 'di3']);
-    });
-    it('ListItem name test also matches DataItem grouping', async () => {
-      expect(await ids('//ListItem')).to.deep.equal(['li1', 'li2', 'di3']);
     });
   });
 

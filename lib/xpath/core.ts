@@ -24,9 +24,9 @@
 //                position, name, local-name, boolean, not, true, false, number, floor, ceiling,
 //                round, sum.
 //   Operators:   = != < <= > >= , + - * div mod, unary -, and/or/not(), `@*` comparisons.
-//   Aliases:     lowercase tags (`//button`→Button), `list`→List|DataGrid,
-//                `listitem`→ListItem|DataItem, `appbar`(50039)/`semanticzoom`(50040)
-//                via LocalizedControlType.
+//   Aliases:     lowercase tags (`//button`→Button); `appbar`(50039)/`semanticzoom`(50040)
+//                via LocalizedControlType. (Control types map 1:1 to UIA — e.g. `//list`→List,
+//                `//datagrid`→DataGrid — no nova2-style List/DataGrid OR-aliasing.)
 //   Position:    `//Button[1]` (per-parent positional) vs `(//Button)[1]` (grouped), `last()`,
 //                `position() = n`, `position() > n`, etc.
 //
@@ -255,18 +255,11 @@ function nodeNameToCondition(name: string): Condition {
     return { kind: 'true' };
   }
   const lower = name.toLowerCase();
-  if (lower === 'list') {
-    return orCondition(
-      propertyCondition('ControlType', 'List'),
-      propertyCondition('ControlType', 'DataGrid'),
-    );
-  }
-  if (lower === 'listitem') {
-    return orCondition(
-      propertyCondition('ControlType', 'ListItem'),
-      propertyCondition('ControlType', 'DataItem'),
-    );
-  }
+  // NOTE: nova2 (PowerShell backend) had to OR `list`→List|DataGrid and `listitem`→ListItem|DataItem
+  // because inspect.exe showed List/ListItem while the PowerShell/UIA path reported DataGrid/DataItem.
+  // The FlaUI backend reads the real UIA ControlType (identical to inspect.exe), so that mismatch cannot
+  // occur — `//list`/`//listitem` map to List/ListItem ONLY, and `//datagrid`/`//dataitem` match those
+  // distinct types directly. (The alias was removed 2026-06-05.)
   // ControlType 50039 (AppBar) / 50040 (SemanticZoom) are not in the classic UIA ControlType
   // enum; nova2 matches them via LocalizedControlType. Mirror that.
   if (lower === 'appbar') {

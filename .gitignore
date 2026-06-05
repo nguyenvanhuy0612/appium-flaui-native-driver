@@ -12,3 +12,6 @@ temp/
 *.tgz
 .env
 .env.*
+
+# stray archives (e.g. pulled app folders) — never publish
+*.zip
