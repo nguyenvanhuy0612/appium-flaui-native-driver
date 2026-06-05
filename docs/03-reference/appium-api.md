@@ -10,6 +10,36 @@ The complete command surface of the **appium-flaui-native-driver** (Appium 3, `a
 
 ---
 
+## The driver's API model
+
+A client talks to this driver in **two layers**:
+
+1. **Standard W3C / Appium commands** — the normal WebDriver surface every Appium client already has
+   (`findElement`, `click`, `getText`, `getAttribute`, `getPageSource`, `getWindowRect`, `performActions`,
+   file transfer, …). No driver-specific calls needed; they map to the sidecar's structured ops.
+   → catalogued in [Standard W3C commands](#standard-w3c-commands).
+2. **`windows:` extension commands** — Windows-specific actions that have no W3C equivalent (UIA pattern
+   actions like `invoke`/`toggle`/`expand`, real `SendInput` mouse/keyboard, clipboard text+image, window/
+   app management, foreground). Invoked through the W3C **execute** endpoint.
+   → catalogued in [`windows:` extension commands](#windows-extension-commands).
+
+```js
+// 1) standard W3C — works with any Appium/WebdriverIO client
+const btn = await driver.$('~SaveButton');   // accessibility id
+await btn.click();
+const xml = await driver.getPageSource();
+
+// 2) windows: extension — driver.execute('windows: <name>', [args])
+await driver.execute('windows: setClipboard', [{ b64: '...', contentType: 'text' }]);
+await driver.execute('windows: invoke', [{ elementId: btn.elementId }]);
+```
+
+Element-targeting capabilities (`app` / `appTopLevelWindow` / `appName` / `processName`), timeouts, and the
+`flaui:`/`ms:` tuning knobs are in [capabilities.md](./capabilities.md); locator strategies + XPath in
+[locators-xpath.md](./locators-xpath.md); the JSON the driver sends the sidecar in [rpc-protocol.md](./rpc-protocol.md).
+
+---
+
 ## Standard W3C commands
 
 All endpoints are rooted at `/session/:id` unless shown otherwise. The **Backend op** column names the sidecar op (envelope detail in [rpc-protocol.md](./rpc-protocol.md)).
