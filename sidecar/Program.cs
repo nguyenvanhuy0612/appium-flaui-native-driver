@@ -61,8 +61,7 @@ app.MapPost("/session", async (HttpRequest req) =>
     // D (nested timeouts): default these just BELOW the watchdog so a frozen provider's COM call
     // self-aborts and returns an error *before* the watchdog has to poison the STA worker (the graceful
     // path). Capped at 20s but always ≤ opTimeout-5s so the nesting holds even for a small operationTimeout.
-    var uiaDefault = TimeSpan.FromMilliseconds(
-        Math.Max(1000, Math.Min(20_000, opTimeout.TotalMilliseconds - 5_000)));
+    var uiaDefault = OpLogic.UiaDefault(opTimeout);
     automation.ConnectionTimeout = Ms(caps, "connectionTimeout") ?? uiaDefault;
     automation.TransactionTimeout = Ms(caps, "transactionTimeout") ?? uiaDefault;
     // E — orphan guard idle self-exit (flaui:idleTimeout, ms; ≤0 disables; default 5 min).
@@ -90,9 +89,7 @@ app.MapPost("/session", async (HttpRequest req) =>
         {
             // Attach to an existing top-level window by HWND (hex, with or without 0x). Invalid hex is a
             // user error → ArgumentException → W3C "invalid argument" (F17), not an opaque unknown error.
-            var raw = hex.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? hex[2..] : hex;
-            if (!long.TryParse(raw, System.Globalization.NumberStyles.HexNumber,
-                    System.Globalization.CultureInfo.InvariantCulture, out var hwnd))
+            if (!OpLogic.TryParseHwnd(hex, out var hwnd))
                 throw new InvalidArgumentException($"appTopLevelWindow is not a valid hex HWND: '{hex}'");
             root = automation!.FromHandle(new IntPtr(hwnd));
             attached = true;

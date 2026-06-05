@@ -430,13 +430,11 @@ public sealed class OpInterpreter
     private static MouseButton ButtonOf(JsonElement args) =>
         args.TryGetProperty("button", out var b) ? ParseButton(b.GetString()) : MouseButton.Left;
 
-    private static MouseButton ParseButton(string? name) => (name?.ToLowerInvariant()) switch
+    private static MouseButton ParseButton(string? name) => OpLogic.ParseButton(name) switch
     {
-        "right" => MouseButton.Right,
-        "middle" => MouseButton.Middle,
-        null or "" or "left" => MouseButton.Left,
-        _ => throw new InvalidArgumentException(
-            $"invalid button '{name}'. Supported values are 'left', 'middle', 'right'."),
+        OpLogic.CanonicalButton.Right => MouseButton.Right,
+        OpLogic.CanonicalButton.Middle => MouseButton.Middle,
+        _ => MouseButton.Left,
     };
 
     // ── modifier keys (ctrl|shift|alt|win) held around an input op (nova2 parity) ────────────────
@@ -444,23 +442,22 @@ public sealed class OpInterpreter
     private static VirtualKeyShort[] ModifiersOf(JsonElement args)
     {
         if (!args.TryGetProperty("modifierKeys", out var m)) return Array.Empty<VirtualKeyShort>();
-        IEnumerable<string> names = m.ValueKind switch
+        var canonical = m.ValueKind switch
         {
-            JsonValueKind.Array => m.EnumerateArray().Select(e => e.GetString() ?? string.Empty),
-            JsonValueKind.String => (m.GetString() ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
-            _ => Array.Empty<string>(),
+            JsonValueKind.Array => OpLogic.ParseModifiers(m.EnumerateArray().Select(e => e.GetString() ?? string.Empty)),
+            JsonValueKind.String => OpLogic.ParseModifiers(m.GetString() ?? string.Empty),
+            _ => Array.Empty<OpLogic.CanonicalModifier>(),
         };
-        return names.Select(MapModifier).ToArray();
+        return canonical.Select(ToVirtualKey).ToArray();
     }
 
-    private static VirtualKeyShort MapModifier(string name) => name.Trim().ToLowerInvariant() switch
+    private static VirtualKeyShort ToVirtualKey(OpLogic.CanonicalModifier m) => m switch
     {
-        "ctrl" or "control" => VirtualKeyShort.CONTROL,
-        "shift" => VirtualKeyShort.SHIFT,
-        "alt" or "menu" => VirtualKeyShort.ALT,
-        "win" or "meta" or "windows" => VirtualKeyShort.LWIN,
-        _ => throw new InvalidArgumentException(
-            $"invalid modifier key '{name}'. Supported values are 'ctrl', 'shift', 'alt', 'win'."),
+        OpLogic.CanonicalModifier.Ctrl => VirtualKeyShort.CONTROL,
+        OpLogic.CanonicalModifier.Shift => VirtualKeyShort.SHIFT,
+        OpLogic.CanonicalModifier.Alt => VirtualKeyShort.ALT,
+        OpLogic.CanonicalModifier.Win => VirtualKeyShort.LWIN,
+        _ => throw new InvalidArgumentException($"unmapped modifier: {m}"),
     };
 
     private static void PressModifiers(VirtualKeyShort[] mods)
@@ -644,7 +641,7 @@ public sealed class OpInterpreter
     {
         if (_registry.TryGet(id, out var el) && el is not null) return el;
         // Never-seen / malformed ids → "no such element"; well-formed runtime ids that aged out → "stale".
-        if (System.Text.RegularExpressions.Regex.IsMatch(id, @"^\d+(\.\d+)*$"))
+        if (OpLogic.LooksLikeRuntimeId(id))
             throw new StaleElementException(id);
         throw new ElementNotFoundException();
     }
@@ -679,10 +676,10 @@ public sealed class OpInterpreter
         {
             "IsEnabled" or "IsOffscreen" or "HasKeyboardFocus" or "IsContentElement" or "IsControlElement"
                 or "IsKeyboardFocusable" or "IsPassword" or "IsRequiredForForm"
-                => val.ValueKind == JsonValueKind.String ? bool.Parse(val.GetString()!) : val.GetBoolean(),
-            "ProcessId" => val.ValueKind == JsonValueKind.String ? int.Parse(val.GetString()!) : val.GetInt32(),
-            "ControlType" => Enum.Parse<ControlType>(val.GetString()!, ignoreCase: true),
-            "RuntimeId" => val.GetString()!.Split('.').Select(int.Parse).ToArray(),
+                => val.ValueKind == JsonValueKind.String ? OpLogic.ParseBool(val.GetString()!) : val.GetBoolean(),
+            "ProcessId" => val.ValueKind == JsonValueKind.String ? OpLogic.ParseInt(val.GetString()!) : val.GetInt32(),
+            "ControlType" => OpLogic.ParseEnum<ControlType>(val.GetString()!),
+            "RuntimeId" => OpLogic.ParseRuntimeId(val.GetString()!),
             _ => val.ValueKind switch
             {
                 JsonValueKind.Number => val.GetDouble(),
@@ -755,13 +752,3 @@ public sealed class OpInterpreter
         return new { x = (int)r.X, y = (int)r.Y, width = (int)r.Width, height = (int)r.Height };
     }
 }
-
-public sealed class StaleElementException(string id) : Exception($"stale element: {id}");
-
-/// <summary>Raised for a malformed/invalid argument (e.g. a non-hex appTopLevelWindow). Mapped to the
-/// W3C "invalid argument" error in Program.cs (distinct from ArgumentException → "invalid selector").</summary>
-public sealed class InvalidArgumentException(string message) : Exception(message);
-
-/// <summary>Raised when a single-element find yields no match (FlaUI's FindFirst returned null).
-/// Mapped to the W3C "no such element" error in Program.cs.</summary>
-public sealed class ElementNotFoundException() : Exception("no such element matched the condition");

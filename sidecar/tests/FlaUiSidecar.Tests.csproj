@@ -16,5 +16,11 @@
     <Compile Include="../UiaScheduler.cs" />
     <!-- FlaUI-free property-resolver logic (name classification / formatting). -->
     <Compile Include="../PropertyResolverLogic.cs" />
+    <!-- FlaUI-free sidecar exception types (referenced by the error classifier). -->
+    <Compile Include="../SidecarExceptions.cs" />
+    <!-- FlaUI-free bounded-FIFO map backing ElementRegistry. -->
+    <Compile Include="../FifoBoundedMap.cs" />
+    <!-- FlaUI-free op logic: modifier/button parsing, hwnd/timeout helpers, error classifier, rect math. -->
+    <Compile Include="../OpLogic.cs" />
   </ItemGroup>
 </Project>

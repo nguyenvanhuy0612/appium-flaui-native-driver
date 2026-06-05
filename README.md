@@ -468,7 +468,6 @@ appium --config appium-config.json
 
 ```bash
 npm install          # install dependencies
-npm run lint         # code quality check
 npm run build        # transpile TypeScript -> JS
 npm run test:unit    # cross-platform unit tests (no Windows needed)
 ```

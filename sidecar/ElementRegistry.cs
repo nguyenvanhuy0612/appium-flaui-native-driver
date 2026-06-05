@@ -1,41 +1,38 @@
-using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using FlaUI.Core.AutomationElements;
 
 namespace FlaUiSidecar;
 
 /// <summary>
-/// RuntimeId → AutomationElement with FIFO eviction. Stale ids are reported to the caller, which maps
-/// them to a W3C 'stale element reference'.
+/// RuntimeId → AutomationElement with bounded, insertion-order eviction. Stale ids are reported to the
+/// caller, which maps them to a W3C 'stale element reference'.
 ///
 /// On eviction the underlying COM object is released (F7) so a long-running session that touches many
 /// elements does not leak RCWs/native UIA handles. The cap is configurable (F5) via flaui:elementTableMax.
+///
+/// The bounded-FIFO mechanics (incl. the bug fix where re-registering a live id moves it to the most-recent
+/// slot so it is not evicted prematurely) live in <see cref="FifoBoundedMap{TKey,TValue}"/>; this class
+/// keeps the FlaUI-specific bits: deriving the RuntimeId key and releasing COM on eviction.
 /// </summary>
 public sealed class ElementRegistry
 {
-    private readonly int _max;
-    private readonly ConcurrentDictionary<string, AutomationElement> _map = new();
-    private readonly ConcurrentQueue<string> _order = new();
+    private readonly FifoBoundedMap<string, AutomationElement> _map;
 
-    public ElementRegistry(int max = 10_000) { _max = max > 0 ? max : 10_000; }
+    public ElementRegistry(int max = 10_000)
+    {
+        _map = new FifoBoundedMap<string, AutomationElement>(max, ReleaseCom);
+    }
 
     public string Register(AutomationElement el)
     {
         var id = string.Join('.', el.Properties.RuntimeId.Value);
-        if (_map.TryAdd(id, el)) { _order.Enqueue(id); EvictIfNeeded(); }
-        else { _map[id] = el; }
+        // Re-registering an existing id updates the value AND touches it (FifoBoundedMap), so a frequently
+        // used element keeps a recent FIFO position and is not evicted while still live.
+        _map.Set(id, el);
         return id;
     }
 
-    public bool TryGet(string id, out AutomationElement? el) => _map.TryGetValue(id, out el);
-
-    private void EvictIfNeeded()
-    {
-        while (_map.Count > _max && _order.TryDequeue(out var oldest))
-        {
-            if (_map.TryRemove(oldest, out var evicted)) ReleaseCom(evicted);
-        }
-    }
+    public bool TryGet(string id, out AutomationElement? el) => _map.TryGet(id, out el);
 
     /// <summary>Release the COM wrapper backing an evicted element (best effort). FlaUI's
     /// AutomationElement wraps a native UIA pointer (UIA3FrameworkAutomationElement.NativeElement is an

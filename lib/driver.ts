@@ -468,7 +468,15 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     if (mult) {
       return (res as { elements: BasicProps[] }).elements.map((e) => toElement(e.runtimeId));
     }
-    return toElement((res as BasicProps).runtimeId);
+    // A single find with no match must fail like the xpath branch (a clean NoSuchElementError) rather
+    // than returning an element wrapping an undefined runtimeId.
+    const runtimeId = (res as BasicProps).runtimeId;
+    if (!runtimeId) {
+      throw new errors.NoSuchElementError(
+        `unable to find an element using ${strategy} '${selector}'`,
+      );
+    }
+    return toElement(runtimeId);
   }
 
   // ── Phase 2 command surface ──────────────────────────────────────────────────────────────

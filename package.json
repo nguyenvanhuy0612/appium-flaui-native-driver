@@ -2,6 +2,27 @@
   "name": "appium-flaui-native-driver",
   "version": "0.1.0-beta.15",
   "description": "Appium 3 Windows driver backed by a compiled C# FlaUI sidecar (UIA3/UIA2 + MSAA legacy).",
+  "license": "Apache-2.0",
+  "author": "Nguyen Van Huy",
+  "homepage": "https://github.com/nguyenvanhuy0612/appium-flaui-native-driver#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nguyenvanhuy0612/appium-flaui-native-driver.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nguyenvanhuy0612/appium-flaui-native-driver/issues"
+  },
+  "keywords": [
+    "appium",
+    "appium-driver",
+    "webdriver",
+    "windows",
+    "uia",
+    "uiautomation",
+    "flaui",
+    "desktop-automation",
+    "winappdriver"
+  ],
   "type": "module",
   "main": "build/lib/driver.js",
   "engines": {
@@ -10,6 +31,8 @@
   },
   "scripts": {
     "build": "tsc -b",
+    "prepack": "tsc -b",
+    "prepublishOnly": "npm run build && node scripts/assert-package-contents.mjs",
     "test:unit": "mocha --import=tsx 'tests/unit/**/*.spec.ts'",
     "test:smoke": "mocha --import=tsx --timeout 60000 'tests/smoke/**/*.e2e.spec.ts'",
     "test:e2e:w3c": "mocha --import=tsx --timeout 180000 --slow 30000 'tests/e2e/**/*.e2e.spec.ts'",
@@ -41,7 +64,7 @@
     "prebuilt/*/FlaUiSidecar.exe"
   ],
   "dependencies": {
-    "@appium/base-driver": "10.6.0",
+    "@appium/base-driver": "^10.6.0",
     "xpath-analyzer": "^3.0.1"
   },
   "peerDependenciesMeta": {
