@@ -11,9 +11,9 @@ export class RpcError extends Error {
 export class RpcClient {
   constructor(private baseUrl: string, private timeoutMs = 30_000) {}
 
-  async health(): Promise<boolean> {
+  async health(timeoutMs = 2_000): Promise<boolean> {
     try {
-      const r = (await this.fetchJson('GET', '/status')) as { ready?: boolean } | null;
+      const r = (await this.fetchJson('GET', '/status', undefined, timeoutMs)) as { ready?: boolean } | null;
       return !!(r && r.ready);
     } catch {
       return false;

@@ -42,44 +42,55 @@ export class Sidecar {
     proc.stdout.setEncoding('utf8');
     proc.stderr.setEncoding('utf8');
 
-    const port = await new Promise<number>((resolve, reject) => {
-      const to = setTimeout(
-        () => reject(new Error('sidecar startup timeout')),
-        this.opts.startupTimeoutMs ?? 15_000,
-      );
-      let buf = '';
-      proc.stdout.on('data', (chunk: string) => {
-        buf += chunk;
-        const m = buf.match(/PORT=(\d+)/);
-        if (m) {
-          clearTimeout(to);
-          resolve(Number(m[1]));
-        }
-      });
-      proc.on('exit', (code) => {
-        clearTimeout(to);
-        reject(new Error(`sidecar exited early: ${code}`));
-      });
-    });
-
-    this.baseUrl = `http://127.0.0.1:${port}`;
-    this.client = new RpcClient(this.baseUrl, this.opts.rpcTimeoutMs);
-
-    // Persistent exit listener (C): record death from ANY cause (crash, idle self-exit, kill) so the
-    // driver can fail the session honestly instead of hanging or silently restarting. This is separate
-    // from the one-shot startup listener above (which only guards the port handshake).
+    // Persistent exit listener (C): record death from ANY cause (crash, idle self-exit, kill). Attached
+    // UP FRONT — before the handshake — so an early-phase death is tracked too, and so stop() never awaits
+    // an 'exit' that already fired.
     proc.on('exit', (code, signal) => {
       this.exited = true;
       this.exitInfo = { code, signal };
     });
 
-    // Wait until /status is ready (bounded).
-    const deadline = Date.now() + 5_000;
-    while (Date.now() < deadline) {
-      if (await this.client.health()) return;
-      await new Promise((r) => setTimeout(r, 100));
+    try {
+      const port = await new Promise<number>((resolve, reject) => {
+        const to = setTimeout(
+          () => reject(new Error('sidecar startup timeout')),
+          this.opts.startupTimeoutMs ?? 15_000,
+        );
+        let buf = '';
+        proc.stdout.on('data', (chunk: string) => {
+          buf += chunk;
+          const m = buf.match(/PORT=(\d+)/);
+          if (m) {
+            clearTimeout(to);
+            resolve(Number(m[1]));
+          }
+        });
+        proc.on('exit', (code) => {
+          clearTimeout(to);
+          reject(new Error(`sidecar exited early: ${code}`));
+        });
+      });
+
+      this.baseUrl = `http://127.0.0.1:${port}`;
+      this.client = new RpcClient(this.baseUrl, this.opts.rpcTimeoutMs);
+
+      // Wait until /status is ready (bounded ~5s). A SHORT per-probe timeout keeps the loop near its
+      // budget even if the sidecar printed PORT then wedged (the default-timeout probe could block ~40s).
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        if (await this.client.health(2_000)) return;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      throw new Error('sidecar did not become healthy');
+    } catch (e) {
+      // Never leak the spawned child on a failed start (port-timeout / unhealthy / early-exit).
+      try {
+        if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGKILL');
+      } catch {
+        /* ignore */
+      }
+      throw e;
     }
-    throw new Error('sidecar did not become healthy');
   }
 
   async stop(): Promise<void> {

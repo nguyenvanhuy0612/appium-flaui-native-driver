@@ -180,9 +180,20 @@ app.MapDelete("/session", async () => await RunOp(() =>
 void CloseOrKillLaunchedApp()
 {
     if (launchedApp is null) return;
-    if (forceQuit) { try { launchedApp.Kill(); } catch { /* best effort */ } return; }
-    try { launchedApp.Close(); }
-    catch { try { launchedApp.Kill(); } catch { /* best effort */ } }
+    var app = launchedApp;
+    if (forceQuit) { try { app.Kill(); } catch { /* best effort */ } return; }
+    // Graceful close, but BOUNDED: Application.Close() waits for the app to exit, so a "Save changes?"
+    // confirm dialog or a wedged app would block teardown forever. A hang is NOT an exception, so the
+    // catch alone cannot escalate — run Close() on a worker and force Kill() if it doesn't return in time.
+    try
+    {
+        var closing = System.Threading.Tasks.Task.Run(() => { try { app.Close(); } catch { /* best effort */ } });
+        if (!closing.Wait(TimeSpan.FromSeconds(5)))
+        {
+            try { app.Kill(); } catch { /* best effort */ }
+        }
+    }
+    catch { try { app.Kill(); } catch { /* best effort */ } }
 }
 
 // ── App-root resolution (the "outermost window" selection) ────────────────────────────────────
@@ -481,7 +492,9 @@ _ = Task.Run(async () =>
         TimeSpan idle;
         lock (activityLock) idle = DateTime.UtcNow - lastActivity;
         if (idle < idleTimeout) continue;
-        try { if (!attached && shouldCloseApp && launchedApp is not null) CloseOrKillLaunchedApp(); }
+        // Best-effort close, but it must NEVER gate the self-exit (the orphan guard exists precisely for a
+        // wedged app). Bound the cleanup and self-exit regardless. (CloseOrKillLaunchedApp is itself bounded.)
+        try { if (!attached && shouldCloseApp && launchedApp is not null) System.Threading.Tasks.Task.Run(CloseOrKillLaunchedApp).Wait(TimeSpan.FromSeconds(6)); }
         catch { /* best effort */ }
         Console.Error.WriteLine(
             $"[sidecar] idle {idle.TotalSeconds:0}s exceeded {idleTimeout.TotalSeconds:0}s — self-exit (orphan guard)");

@@ -209,24 +209,36 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     // so the transport never aborts an op the backend is still legitimately working on.
     const opTimeout = this.operationTimeoutMs ?? 30_000;
     this.sidecar = new Sidecar({ command: exe, args: [], rpcTimeoutMs: opTimeout + 5_000 });
-    await this.sidecar.start();
-    // /session can legitimately take as long as the app-launch wait (ResolveAppRoot loops up to
-    // max(waitForAppLaunch,10)s) — give it that plus a generous buffer instead of the per-op timeout.
-    const launchWaitMs = Math.max((this.opts['ms:waitForAppLaunch'] ?? 0) * 1000, 10_000);
-    await this.sidecar.client.session(this.sessionBody, launchWaitMs + 30_000);
-    // Optional settle delay after app launch (seconds).
-    const wait = this.opts['ms:waitForAppLaunch'];
-    if (typeof wait === 'number' && wait > 0) await new Promise((r) => setTimeout(r, wait * 1000));
-    // Optional prerun PowerShell snippet, run once the session is up. PowerShell is a SCOPED INSECURE
-    // feature (ADR-014): prerun executes arbitrary PowerShell, so it MUST be gated exactly like the
-    // `windows: powershell` script — fail loud if the feature is not enabled (F23).
-    const prerun = this.opts.prerun as { script?: string; command?: string } | undefined;
-    if (prerun?.script || prerun?.command) {
-      this.assertFeatureEnabled('power_shell');
-      await this.op({
-        op: 'powershell',
-        script: prerun.script ?? prerun.command ?? '',
-      });
+    try {
+      await this.sidecar.start();
+      // /session can legitimately take as long as the app-launch wait (ResolveAppRoot loops up to
+      // max(waitForAppLaunch,10)s) — give it that plus a generous buffer instead of the per-op timeout.
+      const launchWaitMs = Math.max((this.opts['ms:waitForAppLaunch'] ?? 0) * 1000, 10_000);
+      await this.sidecar.client.session(this.sessionBody, launchWaitMs + 30_000);
+      // Optional settle delay after app launch (seconds).
+      const wait = this.opts['ms:waitForAppLaunch'];
+      if (typeof wait === 'number' && wait > 0) await new Promise((r) => setTimeout(r, wait * 1000));
+      // Optional prerun PowerShell snippet, run once the session is up. PowerShell is a SCOPED INSECURE
+      // feature (ADR-014): prerun executes arbitrary PowerShell, so it MUST be gated exactly like the
+      // `windows: powershell` script — fail loud if the feature is not enabled (F23).
+      const prerun = this.opts.prerun as { script?: string; command?: string } | undefined;
+      if (prerun?.script || prerun?.command) {
+        this.assertFeatureEnabled('power_shell');
+        await this.op({
+          op: 'powershell',
+          script: prerun.script ?? prerun.command ?? '',
+        });
+      }
+    } catch (e) {
+      // Never leak the spawned sidecar (~180 MB) on a failed session creation. Appium does NOT call
+      // deleteSession when createSession throws, so we must tear down here. stop() is bounded + safe.
+      try {
+        await this.sidecar?.stop();
+      } catch {
+        /* ignore */
+      }
+      this.sidecar = undefined;
+      throw e;
     }
     return [sessionId, caps];
   }
