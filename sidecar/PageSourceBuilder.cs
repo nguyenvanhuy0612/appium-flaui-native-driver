@@ -2,6 +2,8 @@ using System.Text;
 using System.Xml;
 using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
+using FlaUI.Core.Conditions;
+using FlaUI.Core.Definitions;
 
 namespace FlaUiSidecar;
 
@@ -11,13 +13,37 @@ namespace FlaUiSidecar;
 /// Attribute set follows the documented page-source schema: the full UIA element property list, x/y relative
 /// to the start element, and pattern-specific attributes (Window / Transform) — so the published XPath/tests transfer.
 ///
-/// Traversal and property reads are LIVE (one COM round-trip each): correct but O(props×nodes).
-/// TODO (perf): single CacheRequest pass by re-fetching the start element UNDER the active cache.
+/// PERF: a single CacheRequest pass caches every read element property for the whole subtree in ONE
+/// cross-process call, so the per-node property reads below become cache hits instead of one COM
+/// round-trip each (was O(props×nodes) — ~13s on a desktop-root tree). Navigation + the few Window/
+/// Transform pattern reads stay live (AutomationElementMode.Full keeps live references). If caching
+/// throws for any reason, we fall back to the original fully-live walk so output is never lost.
 /// TODO: rawView via a raw-view TreeWalker (currently control view only).
 /// </summary>
 public static class PageSourceBuilder
 {
     public static string Build(AutomationBase automation, AutomationElement start, bool rawView)
+    {
+        // Fast path: walk under an active property cache. Fall back to the live walk on any failure.
+        var cache = TryBuildCacheRequest(automation);
+        if (cache is not null)
+        {
+            try
+            {
+                using (cache.Activate())
+                {
+                    return Walk(start);
+                }
+            }
+            catch
+            {
+                /* fall through to the live walk */
+            }
+        }
+        return Walk(start);
+    }
+
+    private static string Walk(AutomationElement start)
     {
         var rootRect = SafeRect(start);
         var sb = new StringBuilder();
@@ -41,6 +67,39 @@ public static class PageSourceBuilder
         writer.WriteEndDocument();
         writer.Flush();
         return sb.ToString();
+    }
+
+    /// <summary>Cache every element property WriteNode reads, for the whole subtree, in one pass.
+    /// AutomationElementMode.Full keeps live references so FindAllChildren navigation + live pattern
+    /// reads still work; only the bulk property reads become cache hits.</summary>
+    private static CacheRequest? TryBuildCacheRequest(AutomationBase automation)
+    {
+        try
+        {
+            var e = automation.PropertyLibrary.Element;
+            var cr = new CacheRequest
+            {
+                AutomationElementMode = AutomationElementMode.Full,
+                TreeScope = TreeScope.Subtree,
+                TreeFilter = TrueCondition.Default,
+            };
+            foreach (var pid in new[]
+            {
+                e.AcceleratorKey, e.AccessKey, e.AutomationId, e.ClassName, e.ControlType, e.FrameworkId,
+                e.HasKeyboardFocus, e.HelpText, e.IsContentElement, e.IsControlElement, e.IsEnabled,
+                e.IsKeyboardFocusable, e.IsOffscreen, e.IsPassword, e.IsRequiredForForm, e.ItemStatus,
+                e.ItemType, e.LocalizedControlType, e.Name, e.Orientation, e.ProcessId, e.RuntimeId,
+                e.BoundingRectangle,
+            })
+            {
+                cr.Add(pid);
+            }
+            return cr;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     // Push children reversed so they pop in document (left-to-right) order. Live query (no cache).
