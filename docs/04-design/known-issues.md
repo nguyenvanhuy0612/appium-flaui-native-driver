@@ -38,7 +38,7 @@ real mouse+keyboard input, conditions + all four tree scopes, capture, clipboard
 
 | # | Item | Why it matters | Task |
 |---|---|---|---|
-| 1 | Page source via **CacheRequest** | source is live per-node traversal → ~13s on a desktop-root tree (~1MB, seen in .37 logs); one cached pass cuts it to ~1s | #3 |
+| 1 | Page source via **CachedChildren navigation** | source is a live per-node walk → ~13s on a desktop-root tree (~1MB). NOTE: a property-only CacheRequest was tried (beta.22) and **reverted — no speedup**; the cost is the per-node `FindAllChildren` navigation, not the property reads. The real fix is one `FindAll(TreeScope.Subtree, cacheRequest)` then walking `.CachedChildren` (no per-node FindAllChildren). | #3 |
 | 2 | **RangeValue.SetValue** | sliders / spinners / progress are read-only today — a real functional gap | #4 |
 | 3 | **VirtualizedItem.Realize** + **ItemContainer.FindItemByProperty** | long virtualized lists/grids can miss off-screen items | #5 |
 | 4 | **RawView / ContentView** walkers | the `rawView` source flag is accepted but ignored; content view = more concise source (also helps perf) | #6 |
