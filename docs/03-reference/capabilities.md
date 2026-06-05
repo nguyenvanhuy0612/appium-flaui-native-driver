@@ -21,7 +21,7 @@
 | `appArguments` | string | — | Command-line arguments for the launched app. |
 | `appWorkingDir` | string | — | Working directory for the launched app. |
 | `shouldCloseApp` | boolean | `true` | On session end, close the launched app (or the attached window). |
-| `createSessionTimeout` | number (ms) | `60000` | Poll budget to wait for an attach target (`appTopLevelWindow` / `appName` / `processName`) to appear before failing session creation. |
+| `createSessionTimeout` | number (ms) | `60000` | Poll budget to wait for an attach target (`appTopLevelWindow` / `processName` / `appName`) to appear before failing session creation. |
 
 One of `app`, `appTopLevelWindow`, `appName`, or `processName` is required; session creation fails otherwise.
 
@@ -39,7 +39,10 @@ Attach to an already-running app instead of launching one. Use exactly one.
 
 When multiple attach/launch caps are present, the session root is resolved in this order:
 
-`appTopLevelWindow` → `appName` → `processName` → `app` (launch-or-attach) → `Root` (whole desktop).
+`appTopLevelWindow` → `processName` → `appName` → `app` (launch-or-attach) → `Root` (whole desktop).
+
+(Exact identifiers before fuzzy patterns: an exact `processName` is deterministic, while an `appName`
+regex can match several windows — so the precise identifier is tried first.)
 
 If none resolves within `createSessionTimeout`, session creation fails.
 

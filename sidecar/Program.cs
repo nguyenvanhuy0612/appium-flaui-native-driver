@@ -84,7 +84,7 @@ app.MapPost("/session", async (HttpRequest req) =>
         var rootWait = TimeSpan.FromSeconds(
             caps.TryGetProperty("waitForAppLaunch", out var wfa) && wfa.ValueKind == JsonValueKind.Number
                 ? Math.Max(wfa.GetDouble(), 10) : 10);
-        // Poll budget for an ATTACH target (appTopLevelWindow/appName/processName) to appear before we throw
+        // Poll budget for an ATTACH target (appTopLevelWindow/processName/appName) to appear before we throw
         // "no … found" (ms:createSessionTimeout, default 60s). The 'app' launch path keeps using rootWait.
         var attachBudget = OpLogic.CreateSessionTimeout(
             caps.TryGetProperty("createSessionTimeout", out var cstEl) && cstEl.ValueKind == JsonValueKind.Number
@@ -102,6 +102,18 @@ app.MapPost("/session", async (HttpRequest req) =>
                 attachBudget, $"no window found for appTopLevelWindow '{hex}'");
             attached = true;
         }
+        else if (caps.TryGetProperty("processName", out var pnEl) && pnEl.GetString() is { Length: > 0 } processNameRaw)
+        {
+            // Attach by EXACT executable name (case-insensitive, trailing ".exe" optional). Prefer the newest
+            // process that has a visible main window; root at its OUTERMOST window. Not launched → never close.
+            // Tried BEFORE appName: an exact process identifier is deterministic, whereas an appName regex can
+            // match several windows — prefer the precise identifier over the fuzzy pattern.
+            var exe = OpLogic.NormalizeProcessName(processNameRaw);
+            root = PollForAttach(
+                () => { var pid = FindPidByProcessName(exe); return pid is int p ? ResolveAppRoot(p, rootWait) : null; },
+                attachBudget, $"no running process matches processName '{processNameRaw}'");
+            attached = true;
+        }
         else if (caps.TryGetProperty("appName", out var anEl) && anEl.GetString() is { Length: > 0 } appNamePattern)
         {
             // Attach by WINDOW TITLE: appName is a case-insensitive, unanchored regex matched against each
@@ -110,16 +122,6 @@ app.MapPost("/session", async (HttpRequest req) =>
             var rx = OpLogic.CompileAppNameRegex(appNamePattern);
             root = PollForAttach(() => FindWindowByTitle(rx), attachBudget,
                 $"no top-level window title matches appName '{appNamePattern}'");
-            attached = true;
-        }
-        else if (caps.TryGetProperty("processName", out var pnEl) && pnEl.GetString() is { Length: > 0 } processNameRaw)
-        {
-            // Attach by EXACT executable name (case-insensitive, trailing ".exe" optional). Prefer the newest
-            // process that has a visible main window; root at its OUTERMOST window. Not launched → never close.
-            var exe = OpLogic.NormalizeProcessName(processNameRaw);
-            root = PollForAttach(
-                () => { var pid = FindPidByProcessName(exe); return pid is int p ? ResolveAppRoot(p, rootWait) : null; },
-                attachBudget, $"no running process matches processName '{processNameRaw}'");
             attached = true;
         }
         else if (caps.TryGetProperty("app", out var appEl) &&
@@ -133,7 +135,7 @@ app.MapPost("/session", async (HttpRequest req) =>
         {
             appPath = caps.GetProperty("app").GetString()!;
             // Attach-or-launch (the classic desktop case): if the app is ALREADY running, attach to it —
-            // this transparently handles single-instance apps (e.g. SecureAge) whose fresh launch would
+            // this transparently handles single-instance apps whose fresh launch would
             // just hand off to the running instance and exit. Otherwise, launch it.
             var existing = FindPidByExe(appPath);
             if (existing is int epid)
