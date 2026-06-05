@@ -40,7 +40,7 @@ UIA (≈20s)  <  watchdog (30s)  <  RpcClient (35s)  <  hard-deadline (40s)
 | 4 | `Sidecar.start` handshake | 15s PORT + 5s `/status` | `startupTimeoutMs` | `sidecar.ts` |
 | 4b | `Sidecar.stop` SIGKILL fallback | 2s | — | `sidecar.ts` |
 | 5 | Sidecar idle self-exit (orphan guard) | **`newCommandTimeout + 120s`** (sits above Appium's reap; `newCommandTimeout:0` disables) | `flaui:idleTimeout` (override) | `driver.ts` → `Program.cs` |
-| 6 | Appium `newCommandTimeout` | 300s | client capability | appium |
+| 6 | Appium `newCommandTimeout` | 60s (base-driver default) | client capability | appium |
 
 ## The 5 layers
 

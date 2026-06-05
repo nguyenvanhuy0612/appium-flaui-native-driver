@@ -91,6 +91,7 @@ The driver supports the following capabilities, grouped by prefix in order — *
 | `appium:appArguments` | Arguments passed to the app on launch. | (None) | `--debug` |
 | `appium:appWorkingDir` | Working directory for the launched app. | (None) | `C:\Temp` |
 | `appium:shouldCloseApp` | On session end, close the app **started via `app`** (incl. a single-instance app `app` fell back to attaching). Apps reached via `appTopLevelWindow`/`appName`/`processName` are **never** closed. | `true` | `false` |
+| `appium:newCommandTimeout` | Standard Appium cap (provided by base-driver, not redeclared here): seconds the server waits for the next command before auto-ending an idle session. `0` = never. Also drives the default for `flaui:idleTimeout` (`+120s`). | `60` | `600` |
 | `appium:prerun` | `{ script }` — PowerShell to run before the session starts (requires the `power_shell` feature). | (None) | `{script: '...'}` |
 | `appium:postrun` | `{ script }` — PowerShell to run on session teardown (requires the `power_shell` feature). | (None) | `{script: '...'}` |
 | `appium:typeDelay` | Per-character delay (ms). **Accepted but not yet applied.** | `0` | `100` |
