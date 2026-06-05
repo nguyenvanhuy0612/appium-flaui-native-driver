@@ -89,7 +89,7 @@ The driver supports the following capabilities:
 | `appium:createSessionTimeout` | Poll budget (ms) to wait for an attach target (`appTopLevelWindow`/`appName`/`processName`) to appear before failing. | `60000` | `30000` |
 | `appium:appArguments` | Arguments passed to the app on launch. | (None) | `--debug` |
 | `appium:appWorkingDir` | Working directory for the launched app. | (None) | `C:\Temp` |
-| `appium:shouldCloseApp` | Close the app's window when the session ends. | `true` | `false` |
+| `appium:shouldCloseApp` | On session end, close the app **started via `app`** (default true; even a single-instance app `app` fell back to attaching). Apps reached via `appTopLevelWindow`/`appName`/`processName` are **never** closed. | `true` | `false` |
 | `ms:waitForAppLaunch` | Seconds to wait after launch before searching for the root window. | `0` | `3` |
 | `ms:forcequit` | Force-kill the app process on session deletion. | `false` | `true` |
 | `flaui:backend` | UIA backend: `uia3` (recommended) or `uia2`. | `uia3` | `uia2` |

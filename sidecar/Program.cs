@@ -151,9 +151,12 @@ app.MapPost("/session", async (HttpRequest req) =>
             catch
             {
                 // Single-instance hand-off: the launched process exited without a window → attach the survivor.
+                // The `app` cap means "manage this app's lifecycle", so we KEEP ownership (attach a handle,
+                // leave `attached` = false) → it is still closed on teardown per shouldCloseApp, even though it
+                // was already running. (Explicit attach modes — processName/appName/appTopLevelWindow — do NOT.)
                 var alt = FindPidByExe(appPath) ?? throw new ArgumentException($"app launched but no window appeared for '{appPath}'");
                 root = ResolveAppRoot(alt, rootWait);
-                launchedApp = null; attached = true; // we no longer own the surviving instance
+                launchedApp = Application.Attach(alt); // owned → CloseOrKillLaunchedApp() closes it on teardown
             }
         }
         return interp!.OpenSession(root, bringToFront);

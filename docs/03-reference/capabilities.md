@@ -20,7 +20,7 @@
 | `app` | string | — | Path of the app to launch, or `Root` for a whole-desktop session. |
 | `appArguments` | string | — | Command-line arguments for the launched app. |
 | `appWorkingDir` | string | — | Working directory for the launched app. |
-| `shouldCloseApp` | boolean | `true` | On session end, close the launched app (or the attached window). |
+| `shouldCloseApp` | boolean | `true` | On session end, close the app **only if it was started via `app`** (default true) — including a single-instance app that `app` fell back to attaching. Apps reached via `appTopLevelWindow` / `appName` / `processName` are **never** closed (you attached, you didn't launch). |
 | `createSessionTimeout` | number (ms) | `60000` | Poll budget to wait for an attach target (`appTopLevelWindow` / `processName` / `appName`) to appear before failing session creation. |
 
 One of `app`, `appTopLevelWindow`, `appName`, or `processName` is required; session creation fails otherwise.
@@ -39,12 +39,20 @@ Attach to an already-running app instead of launching one. Use exactly one.
 
 When multiple attach/launch caps are present, the session root is resolved in this order:
 
-`appTopLevelWindow` → `processName` → `appName` → `app` (launch-or-attach) → `Root` (whole desktop).
+`appTopLevelWindow` → `processName` → `appName` → `app` (launch) → `Root` (whole desktop).
 
 (Exact identifiers before fuzzy patterns: an exact `processName` is deterministic, while an `appName`
 regex can match several windows — so the precise identifier is tried first.)
 
 If none resolves within `createSessionTimeout`, session creation fails.
+
+### App lifecycle on session end
+
+- **`app`** = the driver **owns** the app: it LAUNCHES a fresh process and **closes it on session end**
+  (`shouldCloseApp` default `true`; `ms:forcequit` kills instead of closing). This holds even for a
+  single-instance app where the launch handed off to a running instance — `app` still closes it.
+- **`appTopLevelWindow` / `appName` / `processName`** = you **attached** to a running app: it is **left
+  running** on session end (the driver never closes what it did not launch).
 
 ## `flaui:*` tuning
 
