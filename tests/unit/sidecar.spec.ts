@@ -20,6 +20,20 @@ describe('Sidecar process manager', () => {
     expect(sc.isRunning).to.equal(false);
   });
 
+  it('stop() does not hang when the process already exited (deleteSession wedge guard)', async () => {
+    const sc = new Sidecar({ command: process.execPath, args: [FAKE] });
+    await sc.start();
+    // The sidecar dies on its OWN (idle self-exit / crash) — not via stdin/stop() — so the persistent
+    // 'exit' listener fires while `proc` is still set. stop() must not then await an 'exit' that already happened.
+    try { await fetch(sc.baseUrl + '/__die'); } catch { /* connection may drop as it exits */ }
+    const deadline = Date.now() + 3_000;
+    while (!sc.hasExited && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    expect(sc.hasExited, 'process should have exited on its own').to.equal(true);
+    const t0 = Date.now();
+    await sc.stop(); // BUG (pre-fix): awaited a never-firing 'exit' → hung forever
+    expect(Date.now() - t0, 'stop() must return promptly on an already-exited process').to.be.lessThan(1_500);
+  });
+
   it('C: tracks process death (hasExited / exitReason)', async () => {
     const sc = new Sidecar({ command: process.execPath, args: [FAKE] });
     await sc.start();

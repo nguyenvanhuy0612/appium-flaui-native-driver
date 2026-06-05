@@ -86,12 +86,20 @@ export class Sidecar {
     if (!this.proc) return;
     const p = this.proc;
     this.proc = undefined;
+    // Already dead? (the sidecar may self-exit or crash DURING teardown — e.g. its idle guard fires, or a
+    // blocked DELETE handler is killed). The 'exit' event has then already fired, so attaching a new 'exit'
+    // listener below would NEVER resolve and `await stop()` would hang forever — which wedges deleteSession.
+    if (this.exited || p.exitCode !== null || p.signalCode !== null) return;
     try {
       p.stdin.end(); // triggers heartbeat self-exit in the sidecar
     } catch {
       /* ignore */
     }
     await new Promise<void>((resolve) => {
+      if (p.exitCode !== null || p.signalCode !== null) {
+        resolve();
+        return; // raced to exit between the check above and here
+      }
       const killTimer = setTimeout(() => {
         try {
           p.kill('SIGKILL');
@@ -99,8 +107,11 @@ export class Sidecar {
           /* ignore */
         }
       }, 2_000);
-      p.on('exit', () => {
+      // Hard cap: resolve even if the 'exit' event never arrives, so teardown can never wedge.
+      const hardTimer = setTimeout(resolve, 4_000);
+      p.once('exit', () => {
         clearTimeout(killTimer);
+        clearTimeout(hardTimer);
         resolve();
       });
     });

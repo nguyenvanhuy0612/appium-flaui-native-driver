@@ -7,6 +7,12 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ ok: true, ready: true }));
     return;
   }
+  if (req.url === '/__die') {
+    // test hook: simulate the sidecar self-exiting / crashing on its own (NOT via stdin/stop()).
+    res.end(JSON.stringify({ ok: true, value: {} }));
+    setTimeout(() => process.exit(0), 10);
+    return;
+  }
   res.end(JSON.stringify({ ok: true, value: {} }));
 });
 
