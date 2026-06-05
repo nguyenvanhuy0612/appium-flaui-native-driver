@@ -30,8 +30,23 @@ already shipped (E).
 
 ## FlaUI capability gaps
 
-Features the C# backend can already support but that are **not yet wired** through to the driver — see
-[backend (FlaUI) — not yet wired](../02-architecture/backend-flaui.md#not-yet-wired-gaps).
+The full ✅/🟡/⬜ utilization matrix is in
+[backend (FlaUI) — not yet wired](../02-architecture/backend-flaui.md#not-yet-wired-gaps). The **core
+interaction surface is fully wired** (invoke/toggle/expand/value/selection/window/scrollIntoView/transform,
+real mouse+keyboard input, conditions + all four tree scopes, capture, clipboard, attach/launch, UIA2+UIA3)
+— enough to ship beta. The unwired items below are **post-release**, ordered by value:
+
+| # | Item | Why it matters | Task |
+|---|---|---|---|
+| 1 | Page source via **CacheRequest** | source is live per-node traversal → ~13s on a desktop-root tree (~1MB, seen in .37 logs); one cached pass cuts it to ~1s | #3 |
+| 2 | **RangeValue.SetValue** | sliders / spinners / progress are read-only today — a real functional gap | #4 |
+| 3 | **VirtualizedItem.Realize** + **ItemContainer.FindItemByProperty** | long virtualized lists/grids can miss off-screen items | #5 |
+| 4 | **RawView / ContentView** walkers | the `rawView` source flag is accepted but ignored; content view = more concise source (also helps perf) | #6 |
+| 5 | **FromPoint / FocusedElement** | element-under-point and focused-element locators (low effort) | #7 |
+
+Niche / nice-to-have (not tracked as tasks): Scroll-pattern action, Text selection/Text2, Table/Grid cell
+actions, MultipleView, Dock `SetDockPosition`, Transform.Rotate/Zoom, Touch gestures, Store-app launch by
+AUMID, multi-monitor `Capture`, `DrawHighlight`. Screen recording is out of scope (ADR-012).
 
 ## Pattern-command verification (beta)
 

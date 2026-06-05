@@ -614,7 +614,8 @@ public sealed class OpInterpreter
             args.GetProperty(yKey).GetInt32());
     }
 
-    /// <summary>Page source as XML, built in one CacheRequest pass (Phase 2). Schema must match nova2.</summary>
+    /// <summary>Page source as XML. Schema must match nova2. NOTE: traversal + property reads are LIVE
+    /// (one COM round-trip per node/prop) — a single-pass CacheRequest is a TODO (see known-issues #3).</summary>
     public object Source(JsonElement op)
     {
         var startId = op.GetProperty("startId").GetString()!;
