@@ -78,34 +78,58 @@ appium driver install --source=local /path/to/appium-flaui-native-driver
 
 The driver supports the following capabilities:
 
-| Capability Name | Description | Default | Example |
+Capabilities are grouped into **session & app** (`platformName` + `appium:`), **Windows-compat** (`ms:`),
+and **FlaUI engine tuning** (`flaui:`).
+
+### Session & app (`appium:`)
+
+| Capability | Description | Default | Example |
 | :--- | :--- | :--- | :--- |
 | `platformName` | Must be `Windows` (case-insensitive). | (Required) | `Windows` |
 | `appium:automationName` | Must be `FlaUINative` (case-insensitive). | (Required) | `FlaUINative` |
-| `appium:app` | Path to the executable to launch, **or** the special value `Root` to attach to the whole desktop. | (None) | `C:\Windows\System32\notepad.exe`, `Root` |
-| `appium:appTopLevelWindow` | Hex handle (HWND) of an existing top-level window to attach to instead of launching. | (None) | `0x40344` |
-| `appium:appName` | Regex matched **case-insensitively against the window TITLE**; attaches to the first matching top-level window. | (None) | `.*Notepad` |
-| `appium:processName` | Exact executable name, case-insensitive (with or without `.exe`); attaches to that process's outermost window. | (None) | `notepad.exe` |
-| `appium:createSessionTimeout` | Poll budget (ms) to wait for an attach target (`appTopLevelWindow`/`appName`/`processName`) to appear before failing. | `60000` | `30000` |
+| `appium:app` | Path to the executable to **launch** (or `Root` for the whole desktop). The driver owns a launched app and closes it on session end. | (None) | `C:\Windows\System32\notepad.exe`, `Root` |
+| `appium:appTopLevelWindow` | Attach to an existing window by hex HWND. | (None) | `0x40344` |
+| `appium:appName` | Attach to a running app whose **window TITLE** matches this **regex** (case-insensitive). | (None) | `.*Notepad` |
+| `appium:processName` | Attach to a running app by **exact exe name** (case-insensitive, `.exe` optional). | (None) | `notepad.exe` |
+| `appium:createSessionTimeout` | Poll budget (ms) to wait for an attach target to appear before failing. | `60000` | `30000` |
 | `appium:appArguments` | Arguments passed to the app on launch. | (None) | `--debug` |
 | `appium:appWorkingDir` | Working directory for the launched app. | (None) | `C:\Temp` |
-| `appium:shouldCloseApp` | On session end, close the app **started via `app`** (default true; even a single-instance app `app` fell back to attaching). Apps reached via `appTopLevelWindow`/`appName`/`processName` are **never** closed. | `true` | `false` |
-| `ms:waitForAppLaunch` | Seconds to wait after launch before searching for the root window. | `0` | `3` |
-| `ms:forcequit` | Force-kill the app process on session deletion. | `false` | `true` |
-| `flaui:backend` | UIA backend: `uia3` (recommended) or `uia2`. | `uia3` | `uia2` |
-| `flaui:connectionTimeout` | UIA `ConnectionTimeout` in ms (anti-hang layer 1; defaults *below* the watchdog). | `min(20000, operationTimeout−5000)` | `5000` |
-| `flaui:transactionTimeout` | UIA `TransactionTimeout` in ms (anti-hang layer 1; defaults *below* the watchdog). | `min(20000, operationTimeout−5000)` | `5000` |
-| `flaui:operationTimeout` | Per-operation wall-clock watchdog in ms (anti-hang layer 2; also sets the per-op RPC timeout `+5000`). | `30000` | `30000` |
-| `flaui:elementTableMax` | Max number of retained element references. | (sidecar default) | `5000` |
-| `flaui:idleTimeout` | Sidecar idle self-exit in ms (orphan guard). **By default follows `newCommandTimeout`** (`newCommandTimeout + 120s`), so setting `newCommandTimeout` alone is enough — a long inter-command wait Appium is keeping alive is never cut short. `newCommandTimeout: 0` (infinite) disables it. Set this only to override. | `newCommandTimeout + 120000` | `600000` |
-| `flaui:autoRecycle` | **Opt-in**: silently recycle + re-attach the sidecar on a transport failure. When `false` (default) a dead/unresponsive sidecar **fails the session** (`invalid session id`) so you create a new one. | `false` | `true` |
-| `appium:prerun` | `{ script }` — PowerShell to run before the session starts (requires the `power_shell` insecure feature). | (None) | `{script: '...'}` |
-| `appium:postrun` | `{ script }` — PowerShell to run on session teardown (requires the `power_shell` insecure feature). | (None) | `{script: '...'}` |
-| `appium:typeDelay` | Per-character delay (ms). **Accepted but not yet applied** — keystrokes are sent without an inter-character delay. | `0` | `100` |
-| `appium:includeContextElementInSearch` | Searches include the context element itself. | `true` | `false` |
+| `appium:shouldCloseApp` | On session end, close the app **started via `app`** (incl. a single-instance app `app` fell back to attaching). Apps reached via `appTopLevelWindow`/`appName`/`processName` are **never** closed. | `true` | `false` |
+| `appium:prerun` | `{ script }` — PowerShell to run before the session starts (requires the `power_shell` feature). | (None) | `{script: '...'}` |
+| `appium:postrun` | `{ script }` — PowerShell to run on session teardown (requires the `power_shell` feature). | (None) | `{script: '...'}` |
+| `appium:typeDelay` | Per-character delay (ms). **Accepted but not yet applied.** | `0` | `100` |
+| `appium:includeContextElementInSearch` | Find-from-element searches include the context element itself. | `true` | `false` |
 | `appium:convertAbsoluteXPathToRelativeFromElement` | When `true`, a find-from-element XPath starting with `//` is rewritten to `.//` (treat a leading `//` as "from this context element"). | `false` | `true` |
 
-> **PowerShell timeout** is no longer a capability. Each `execute('powershell', [{script\|command, timeout?}])` call takes a per-call `timeout` (ms, default `60000`). PowerShell runs out-of-scheduler, so `flaui:operationTimeout` does not bound it.
+> One of `app` / `appTopLevelWindow` / `appName` / `processName` is required. When several are given, the
+> attach target resolves in order **`appTopLevelWindow` → `processName` → `appName` → `app` → `Root`**
+> (exact identifiers before fuzzy patterns).
+>
+> **PowerShell timeout** is not a capability — each `execute('powershell', [{script\|command, timeout?}])`
+> call takes a per-call `timeout` (ms, default `60000`). PowerShell runs out-of-scheduler, so
+> `flaui:operationTimeout` does not bound it.
+
+### Windows compatibility (`ms:`)
+
+| Capability | Description | Default | Example |
+| :--- | :--- | :--- | :--- |
+| `ms:waitForAppLaunch` | Seconds to wait after **launch** for the app's window to appear. | `0` | `3` |
+| `ms:forcequit` | Kill the app process (instead of a graceful close) on session deletion. | `false` | `true` |
+
+### FlaUI engine tuning (`flaui:`)
+
+These tune the **C# FlaUI / UIA3 sidecar** — the backend process that does the actual UI Automation.
+Defaults are safe; most sessions never set any of these. The timeout caps form the nested anti-hang chain
+(**UIA timeouts < watchdog < RPC < hard-deadline**) — see [`docs/02-architecture/stability.md`](docs/02-architecture/stability.md).
+
+| Capability | What it does / when to tune | Default |
+| :--- | :--- | :--- |
+| `flaui:backend` | Which UI Automation API the sidecar uses. `uia3` = the modern COM UIA (full pattern set, recommended); `uia2` = the managed UIA wrapper — try only if a legacy control misbehaves under UIA3. | `uia3` |
+| `flaui:operationTimeout` | **The main per-op watchdog (ms).** Every UIA operation must finish within this or it's aborted as a `timeout` and the worker is recycled — the core anti-hang bound. Raise it if you have legitimately slow operations. | `30000` |
+| `flaui:connectionTimeout` / `flaui:transactionTimeout` | Low-level UIA COM timeouts (ms), kept *below* the watchdog so a stuck COM call bails on its own first. Rarely tuned. | `min(20000, operationTimeout−5000)` |
+| `flaui:elementTableMax` | Size of the sidecar's RuntimeId→element cache (FIFO). Bump it for huge UI trees or very long sessions. | (sidecar default) |
+| `flaui:idleTimeout` | Sidecar self-exits after this idle time (orphan guard). Defaults to `newCommandTimeout + 120s`, so setting `newCommandTimeout` alone is enough; `newCommandTimeout: 0` disables it. | `newCommandTimeout + 120000` |
+| `flaui:autoRecycle` | **Opt-in.** When `true`, silently recycle the sidecar on a transport failure. Default `false` = a dead/unresponsive sidecar **fails the session** (`invalid session id`) so you start a fresh one. | `false` |
 
 ---
 
