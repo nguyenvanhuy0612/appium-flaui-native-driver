@@ -112,6 +112,10 @@ describe('RpcClient', () => {
     // A generous per-call timeout lets the very same slow op succeed.
     const ok = await client.op({ op: 'source', startId: 'root' }, 2_000);
     expect(ok).to.deep.equal({});
+    // The aborted first request leaves a half-open socket the server still holds for its 500ms delay;
+    // plain close() then waits on that straggler and can exceed mocha's 2s timeout (P2-9). Drop lingering
+    // sockets first so teardown is immediate.
+    slow.closeAllConnections();
     await new Promise<void>((r) => slow.close(() => r()));
   });
 

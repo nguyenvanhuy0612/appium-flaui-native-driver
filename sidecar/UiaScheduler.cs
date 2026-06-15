@@ -26,6 +26,10 @@ public sealed class UiaScheduler : IDisposable
     private readonly object _workerLock = new();        // guards _worker + _poisonedThreadCount
     private Thread _worker;
     private int _poisonedThreadCount;
+    // Generation token: bumped each time a worker is (re)started. Only the CURRENT-generation worker may
+    // consume the queue. A poisoned worker whose frozen COM call eventually returns is now stale, so it must
+    // NOT resume pulling items — otherwise a later op could run on a thread that previously wedged (P1-4).
+    private int _generation;
     private volatile bool _disposed;
 
     /// <summary>How many worker threads have been abandoned due to an unresponsive (frozen) work item.</summary>
@@ -38,7 +42,8 @@ public sealed class UiaScheduler : IDisposable
 
     private Thread StartWorker()
     {
-        var t = new Thread(WorkerLoop) { IsBackground = true, Name = "uia-worker" };
+        var myGen = System.Threading.Interlocked.Increment(ref _generation);
+        var t = new Thread(() => WorkerLoop(myGen)) { IsBackground = true, Name = "uia-worker" };
         // UIA prefers STA. SetApartmentState is a no-op/throws on non-Windows, so guard it.
         if (OperatingSystem.IsWindows())
         {
@@ -48,10 +53,17 @@ public sealed class UiaScheduler : IDisposable
         return t;
     }
 
-    private void WorkerLoop()
+    private void WorkerLoop(int myGen)
     {
         foreach (var item in _queue.GetConsumingEnumerable())
         {
+            // This worker was poisoned/replaced (its frozen COM call has now returned) — a newer generation
+            // owns the queue. Hand the item back to the live worker and STOP consuming (P1-4).
+            if (System.Threading.Volatile.Read(ref _generation) != myGen)
+            {
+                _queue.Add(item);
+                return;
+            }
             if (item.Token.IsCancellationRequested) { item.Tcs.TrySetCanceled(); continue; }
             try { item.Tcs.TrySetResult(item.Work(item.Token)); }
             catch (Exception ex) { item.Tcs.TrySetException(ex); }

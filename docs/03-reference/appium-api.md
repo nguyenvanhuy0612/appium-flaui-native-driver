@@ -206,4 +206,4 @@ Mouse/keyboard via FlaUI.Core.Input (SendInput). Optional param names are exact,
 |---|---|---|---|
 | getPageSource | — / `elementId` | `source` (element-scoped; defaults to `root`) | 🟡 |
 | cacheRequest | — / `treeScope`, `treeFilter`, `conditions`, `automationElementMode` | none — accepted no-op `{done:true}` | ⬜ |
-| typeDelay | `delay` / — | none — advisory; stores value, returns previous | ⬜ |
+| typeDelay | `delay` / — | sets per-character typing delay (ms); returns previous | ✅ |

@@ -17,9 +17,13 @@ export class Sidecar {
   /** Set by the persistent exit listener once the child process actually dies (any cause). */
   private exited = false;
   private exitInfo?: { code: number | null; signal: NodeJS.Signals | null };
+  /** Set by the persistent 'error' listener on a spawn-level failure (ENOENT / EACCES / blocked exe). */
+  private spawnError?: Error;
 
   get isRunning(): boolean {
-    return !!this.proc && this.proc.exitCode === null;
+    // A spawn-level failure never gives the process an exitCode, so guard on `exited` (set by the 'error'
+    // listener) too — otherwise a process that failed to launch would falsely report as running.
+    return !!this.proc && this.proc.exitCode === null && !this.exited;
   }
 
   /** True once the child process has died (C: sidecar-death → fail session). */
@@ -30,6 +34,7 @@ export class Sidecar {
   /** Human-readable exit reason for error messages (e.g. "code 3" / "signal SIGKILL"). */
   get exitReason(): string {
     if (!this.exited) return 'running';
+    if (this.spawnError) return `failed to start (${this.spawnError.message})`;
     if (this.exitInfo?.signal) return `signal ${this.exitInfo.signal}`;
     return `code ${this.exitInfo?.code ?? 'unknown'}`;
   }
@@ -48,6 +53,14 @@ export class Sidecar {
     proc.on('exit', (code, signal) => {
       this.exited = true;
       this.exitInfo = { code, signal };
+    });
+    // Persistent 'error' listener (P0-3): a spawn-level failure (exe not found / not executable / blocked by
+    // AV) emits 'error' on the process, NOT a normal 'exit'. With NO listener Node escalates it to a
+    // process-level uncaughtException that can take down the whole Appium server. Record it as a death so
+    // hasExited/isRunning reflect reality; the handshake promise below rejects cleanly on the same event.
+    proc.on('error', (err) => {
+      this.exited = true;
+      this.spawnError = err;
     });
 
     try {
@@ -68,6 +81,12 @@ export class Sidecar {
         proc.on('exit', (code) => {
           clearTimeout(to);
           reject(new Error(`sidecar exited early: ${code}`));
+        });
+        // Spawn-level failure → reject the handshake with a clear, path-bearing message instead of letting
+        // it surface as an uncaughtException (P0-3).
+        proc.on('error', (err) => {
+          clearTimeout(to);
+          reject(new Error(`failed to launch sidecar at '${this.opts.command}': ${err.message}`));
         });
       });
 

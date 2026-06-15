@@ -34,6 +34,10 @@ var idleTimeout = TimeSpan.FromMinutes(5);
 var activityLock = new object();
 var lastActivity = DateTime.UtcNow;
 void Touch() { lock (activityLock) lastActivity = DateTime.UtcNow; }
+// P0-2 — requests currently executing. The idle guard must NEVER self-exit while an op is in flight (a long
+// op keeps lastActivity stale otherwise and the guard would kill the sidecar mid-op). Bumped around RunOp /
+// RunPowerShell (which wrap every /session, /op and DELETE).
+var inFlight = 0;
 
 // Read an optional millisecond cap from the session caps.
 static TimeSpan? Ms(JsonElement caps, string name) =>
@@ -76,19 +80,24 @@ app.MapPost("/session", async (HttpRequest req) =>
   catch (JsonException ex) { return Err("invalid argument", $"malformed /session body: {ex.Message}"); }
   catch (Exception ex) { return Err("unknown error", ex.Message); }
 
+    // How long to wait for the app's top-level window to surface (ms:waitForAppLaunch, min 10s).
+    var rootWait = TimeSpan.FromSeconds(
+        caps.TryGetProperty("waitForAppLaunch", out var wfa) && wfa.ValueKind == JsonValueKind.Number
+            ? Math.Max(wfa.GetDouble(), 10) : 10);
+    // Poll budget for an ATTACH target (appTopLevelWindow/processName/appName) to appear before we throw
+    // "no … found" (ms:createSessionTimeout, default 60s). The 'app' launch path keeps using rootWait.
+    var attachBudget = OpLogic.CreateSessionTimeout(
+        caps.TryGetProperty("createSessionTimeout", out var cstEl) && cstEl.ValueKind == JsonValueKind.Number
+            ? cstEl.GetDouble() : (double?)null);
+    // P0-1 — /session setup runs far longer than a per-op: give the watchdog a budget that covers the full
+    // attach poll + window-surface waits instead of the 30s per-op default (which would poison the worker on
+    // a slow attach/launch). The TS RPC timeout (driver.ts) sits above this in turn.
+    var setupTimeout = OpLogic.SessionSetupTimeout(attachBudget, rootWait);
+
     return await RunOp(() =>
     {
         FlaUI.Core.AutomationElements.AutomationElement root;
         var bringToFront = true; // foreground the app at session start (launch/attach); cleared for 'Root'.
-        // How long to wait for the app's top-level window to surface (ms:waitForAppLaunch, min 10s).
-        var rootWait = TimeSpan.FromSeconds(
-            caps.TryGetProperty("waitForAppLaunch", out var wfa) && wfa.ValueKind == JsonValueKind.Number
-                ? Math.Max(wfa.GetDouble(), 10) : 10);
-        // Poll budget for an ATTACH target (appTopLevelWindow/processName/appName) to appear before we throw
-        // "no … found" (ms:createSessionTimeout, default 60s). The 'app' launch path keeps using rootWait.
-        var attachBudget = OpLogic.CreateSessionTimeout(
-            caps.TryGetProperty("createSessionTimeout", out var cstEl) && cstEl.ValueKind == JsonValueKind.Number
-                ? cstEl.GetDouble() : (double?)null);
 
         if (caps.TryGetProperty("appTopLevelWindow", out var h) && h.GetString() is { Length: > 0 } hex)
         {
@@ -160,7 +169,7 @@ app.MapPost("/session", async (HttpRequest req) =>
             }
         }
         return interp!.OpenSession(root, bringToFront);
-    });
+    }, setupTimeout);
 });
 
 app.MapDelete("/session", async () => await RunOp(() =>
@@ -408,6 +417,7 @@ object HandleApp(JsonElement op)
 // to a W3C "timeout" error. Timeout = the per-call op.timeoutMs when present, else a 60s default.
 async Task<IResult> RunPowerShell(JsonElement op)
 {
+    System.Threading.Interlocked.Increment(ref inFlight); // P0-2 — block idle self-exit while a script runs
     var timeout = op.TryGetProperty("timeoutMs", out var tm) && tm.ValueKind == JsonValueKind.Number
         ? TimeSpan.FromMilliseconds(tm.GetDouble())
         : TimeSpan.FromSeconds(60);
@@ -444,25 +454,30 @@ async Task<IResult> RunPowerShell(JsonElement op)
         try { p?.Kill(entireProcessTree: true); } catch { /* best effort */ }
         return Err("unknown error", ex.Message);
     }
-    finally { p?.Dispose(); }
+    finally { p?.Dispose(); System.Threading.Interlocked.Decrement(ref inFlight); Touch(); }
 }
 
 // Every UIA-touching op runs on the scheduler's dedicated worker, bounded by the watchdog (layer 2),
 // and all exceptions are mapped to W3C error envelopes here.
-async Task<IResult> RunOp(Func<object?> work)
+// timeoutOverride lets the /session setup pass its own (longer) watchdog budget (P0-1); normal ops keep
+// the per-op opTimeout. inFlight is bumped for the duration so the idle guard can't self-exit mid-op (P0-2),
+// and Touch() runs at the END so the idle window restarts only once the op has actually finished.
+async Task<IResult> RunOp(Func<object?> work, TimeSpan? timeoutOverride = null)
 {
+    System.Threading.Interlocked.Increment(ref inFlight);
     try
     {
-        var value = await scheduler.RunAsync(_ => work(), opTimeout);
+        var value = await scheduler.RunAsync(_ => work(), timeoutOverride ?? opTimeout);
         return Results.Json(new { ok = true, value });
     }
     catch (TimeoutException ex) { return Err("timeout", ex.Message); }
-    catch (SchedulerFatalException ex) { return Err("unknown error", ex.Message); } // → TS layer-5 recycle
+    catch (SchedulerFatalException ex) { return Err("backend fatal", ex.Message); } // → TS transport-failure path (markDead / recycle), P1-4
     catch (StaleElementException ex) { return Err("stale element reference", ex.Message); }
     catch (ElementNotFoundException ex) { return Err("no such element", ex.Message); }
     catch (InvalidArgumentException ex) { return Err("invalid argument", ex.Message); }
     catch (ArgumentException ex) { return Err("invalid selector", ex.Message); }
     catch (Exception ex) { return Err("unknown error", ex.Message); }
+    finally { System.Threading.Interlocked.Decrement(ref inFlight); Touch(); }
 }
 IResult Err(string type, string message) => Results.Json(new { ok = false, error = new { type, message } });
 
@@ -491,7 +506,8 @@ _ = Task.Run(async () =>
         if (idleTimeout <= TimeSpan.Zero) continue;
         TimeSpan idle;
         lock (activityLock) idle = DateTime.UtcNow - lastActivity;
-        if (idle < idleTimeout) continue;
+        // P0-2 — never self-exit while an op is in flight, no matter how stale lastActivity looks.
+        if (!OpLogic.ShouldSelfExit(System.Threading.Volatile.Read(ref inFlight), idle, idleTimeout)) continue;
         // Best-effort close, but it must NEVER gate the self-exit (the orphan guard exists precisely for a
         // wedged app). Bound the cleanup and self-exit regardless. (CloseOrKillLaunchedApp is itself bounded.)
         try { if (!attached && shouldCloseApp && launchedApp is not null) System.Threading.Tasks.Task.Run(CloseOrKillLaunchedApp).Wait(TimeSpan.FromSeconds(6)); }

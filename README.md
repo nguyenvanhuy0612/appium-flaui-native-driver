@@ -23,7 +23,7 @@ Designed **W3C-first** and **stability-first**, it offers:
 - **Zero end-user setup** — the sidecar ships as a self-contained single-file `.exe`. No .NET install, no
   Developer Mode, no separate WinAppDriver server.
 
-> **Status: BETA** (`appium-flaui-native-driver@beta`, win-x64). The command surface below is implemented
+> **Status: BETA** (`appium-flaui-native-driver@beta`; win-x64, win-x86, win-arm64). The command surface below is implemented
 > and verified end-to-end on real Windows machines. Canonical, always-current API/status:
 > [`docs/03-reference/appium-api.md`](docs/03-reference/appium-api.md).
 
@@ -94,7 +94,7 @@ The driver supports the following capabilities, grouped by prefix in order — *
 | `appium:newCommandTimeout` | Standard Appium cap (provided by base-driver, not redeclared here): seconds the server waits for the next command before auto-ending an idle session. `0` = never. Also drives the default for `flaui:idleTimeout` (`+120s`). | `60` | `600` |
 | `appium:prerun` | `{ script }` — PowerShell to run before the session starts (requires the `power_shell` feature). | (None) | `{script: '...'}` |
 | `appium:postrun` | `{ script }` — PowerShell to run on session teardown (requires the `power_shell` feature). | (None) | `{script: '...'}` |
-| `appium:typeDelay` | Per-character delay (ms). **Accepted but not yet applied.** | `0` | `100` |
+| `appium:typeDelay` | Per-character delay (ms) for `send_keys` / `windows: keys` typing. | `0` | `100` |
 | `appium:includeContextElementInSearch` | Find-from-element searches include the context element itself. | `true` | `false` |
 | `appium:convertAbsoluteXPathToRelativeFromElement` | When `true`, a find-from-element XPath starting with `//` is rewritten to `.//` (treat a leading `//` as "from this context element"). | `false` | `true` |
 | `ms:waitForAppLaunch` | Seconds to wait after **launch** for the app's window to appear. | `0` | `3` |
@@ -320,7 +320,7 @@ A mouse-wheel scroll gesture.
 | `elementId` / `x` / `y` | `string` / `number` | no | Scroll anchor point. | cursor pos |
 | `deltaX` | `number` | no | Horizontal wheel movement (positive = right). | `0` |
 | `deltaY` | `number` | no | Vertical wheel movement (positive = forward/away). | `0` |
-| `amount` | `number` | no | Wheel-click amount (alternative to deltas). | `1` |
+| `amount` | `number` | no | Wheel-notch count. With `deltaX`/`deltaY` it multiplies them; on its own (no deltas) it scrolls vertically by that many notches (positive = forward/away). | `1` |
 | `modifierKeys` | `string[] \| string` | no | Keys held during the scroll. | — |
 
 ```python
@@ -365,7 +365,7 @@ corresponding UIA pattern in FlaUI.
 | Command | UIA Pattern | Description |
 | :--- | :--- | :--- |
 | `windows: invoke` | Invoke | Activate the element (button press, link, etc.). |
-| `windows: setValue` | Value | Set the element's value: `{ elementId, value }`. Falls back to keyboard typing for controls without ValuePattern. |
+| `windows: setValue` | Value | **Replace** the element's value: `{ elementId, value }`. Falls back to select-all + delete + keyboard typing for controls without ValuePattern. (The W3C `send_keys` command instead **appends** into existing content, matching Selenium/WinAppDriver; use `clear()` then `send_keys` to replace from a test.) |
 | `windows: getValue` | Value | Read the element's value. |
 | `windows: toggle` | Toggle | Toggle a checkbox/toggle control. |
 | `windows: expand` | ExpandCollapse | Expand the element. |
@@ -489,9 +489,9 @@ npm run build        # transpile TypeScript -> JS
 npm run test:unit    # cross-platform unit tests (no Windows needed)
 ```
 
-Rebuilding the sidecar requires the **.NET 8 SDK** (end users do not — the prebuilt exe is self-contained):
+Rebuilding the sidecar requires the **.NET 10 SDK** (end users do not — the prebuilt exe is self-contained):
 ```bash
-dotnet publish sidecar -r win-x64 --self-contained -p:PublishSingleFile=true
+dotnet publish sidecar -r win-x64 --self-contained -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true
 ```
 
 ### Project docs
@@ -510,7 +510,6 @@ Start at [`docs/README.md`](docs/README.md) — a top-down reading map (overview
 | [`docs/internal/`](docs/internal/) | Maintainer notes (changelog, audit, subagents) |
 
 ### Known gaps / roadmap
-`-windows uiautomation` raw-condition locator, rawView page source, active-element / `getDeviceTime`,
-the `typeDelay` per-character delay (the cap is accepted but not yet applied), and
+`-windows uiautomation` raw-condition locator, rawView page source, active-element / `getDeviceTime`, and
 run-verification of the **win-arm64** prebuilt on real ARM hardware. Screen recording is **out of scope**
 (ADR-012). See [`docs/04-design/known-issues.md`](docs/04-design/known-issues.md).

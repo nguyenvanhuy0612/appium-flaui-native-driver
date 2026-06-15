@@ -1,7 +1,7 @@
 # Contributing
 
 `appium-flaui-native-driver` is an Appium 3 Windows UI-automation driver built as two
-processes: a **TypeScript Appium driver** and a compiled **C#/.NET 8 FlaUI sidecar** that
+processes: a **TypeScript Appium driver** and a compiled **C#/.NET 10 FlaUI sidecar** that
 talk over loopback HTTP with structured JSON ops. Start with the [docs](./docs/README.md) —
 especially the [architecture overview](./docs/02-architecture/overview.md) and the
 [RPC protocol](./docs/03-reference/rpc-protocol.md) — before changing anything.
@@ -11,7 +11,7 @@ especially the [architecture overview](./docs/02-architecture/overview.md) and t
 | Path | What |
 |---|---|
 | `lib/` | TypeScript driver. `driver.ts` (W3C/Appium surface), `backend/` (sidecar process + RPC client + op builders), `commands/` (`windows:` extension commands), `xpath/` (XPath → UIA condition compilation). |
-| `sidecar/` | C# FlaUI sidecar (`net8.0-windows`). See [sidecar internals](./docs/02-architecture/sidecar-internals.md) for the file-by-file tour. `sidecar/tests/` holds the C# xUnit tests. |
+| `sidecar/` | C# FlaUI sidecar (`net10.0-windows`). See [sidecar internals](./docs/02-architecture/sidecar-internals.md) for the file-by-file tour. `sidecar/tests/` holds the C# xUnit tests. |
 | `tests/` | TypeScript tests: `unit/` (any OS), `smoke/` + `e2e/` (need a Windows box). |
 | `scripts/` | Build/publish + e2e helper scripts (e.g. `publish-sidecar.mjs`). |
 | `prebuilt/` | Published `win-x64`/`win-arm64` `FlaUiSidecar.exe`. **gitignored** — produced on the Windows build box, included in the npm package via the `files` allowlist. |
@@ -35,7 +35,7 @@ package ships a self-contained single-file exe per architecture:
 npm run publish:sidecar
 # = dotnet publish sidecar/FlaUiSidecar.csproj -c Release -r <rid>
 #     --self-contained true -p:PublishSingleFile=true
-#     -p:IncludeNativeLibrariesForSelfExtract=true -o prebuilt/<rid>
+#     -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o prebuilt/<rid>
 # for rid in win-x64, win-arm64
 ```
 

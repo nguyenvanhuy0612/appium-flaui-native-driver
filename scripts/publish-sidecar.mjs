@@ -3,7 +3,7 @@
 import { execSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 
-const arches = ['win-x64', 'win-arm64'];
+const arches = ['win-x64', 'win-x86', 'win-arm64'];
 for (const rid of arches) {
   const out = `prebuilt/${rid}`;
   mkdirSync(out, { recursive: true });
@@ -14,6 +14,7 @@ for (const rid of arches) {
     '--self-contained true',
     '-p:PublishSingleFile=true',
     '-p:IncludeNativeLibrariesForSelfExtract=true',
+    '-p:EnableCompressionInSingleFile=true',
     `-o ${out}`,
   ].join(' ');
   console.log(`> ${cmd}`);

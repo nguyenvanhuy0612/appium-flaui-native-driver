@@ -17,9 +17,13 @@ internal static class Win32
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr h, out RECT rect);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr h);
+    [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT pt);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT { public int Left, Top, Right, Bottom; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT { public int X, Y; }
 
     private const int SW_RESTORE = 9;
     private const int SW_MINIMIZE = 6;
@@ -28,6 +32,11 @@ internal static class Win32
     private const uint SWP_NOSIZE = 0x1, SWP_NOMOVE = 0x2, SWP_NOACTIVATE = 0x10, SWP_SHOWWINDOW = 0x40;
 
     public static bool IsForeground(IntPtr hwnd) => GetForegroundWindow() == hwnd;
+
+    /// <summary>Current mouse cursor position in screen coordinates (P2-7a: the documented fallback for a
+    /// click/hover with no element and no explicit x/y). Returns (0,0) if the call fails.</summary>
+    public static System.Drawing.Point CursorPos() =>
+        GetCursorPos(out var p) ? new System.Drawing.Point(p.X, p.Y) : System.Drawing.Point.Empty;
 
     /// <summary>The current foreground window's HWND (Zero if none). Used to prefer the foreground match when
     /// resolving an appName window-title attach.</summary>

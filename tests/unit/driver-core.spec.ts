@@ -121,6 +121,27 @@ const out = {};
   out.exitedFailsFast = { res, clientCalls, sessionDead: d.sessionDead };
 }
 
+// (f) backend-fatal RpcError, autoRecycle OFF → routed as a TRANSPORT failure (NOT a live RpcError):
+//     stop() called, sessionDead latched, throws NoSuchDriverError. (P1-4)
+{
+  const d = mk();
+  d.sidecar = fakeSidecar(async () => { throw new RpcError('backend fatal', 'UIA scheduler unrecoverable: 5 poisoned worker threads'); });
+  const res = await cap(() => d.ensureHealthyAndOp({ op: 'source', startId: 'root' }));
+  out.backendFatalNoRecycle = { res, stopCalls: d.sidecar.stopCalls, sessionDead: d.sessionDead };
+}
+
+// (g) backend-fatal RpcError, autoRecycle ON → tryRecycle + retry once (does NOT propagate as RpcError). (P1-4)
+{
+  const d = mk();
+  d.opts['flaui:autoRecycle'] = true;
+  let calls = 0;
+  d.sidecar = fakeSidecar(async () => { calls++; if (calls === 1) throw new RpcError('backend fatal', 'unrecoverable'); return { revived: true }; });
+  let recycleCalls = 0;
+  d.tryRecycle = async () => { recycleCalls++; return true; };
+  const res = await cap(() => d.ensureHealthyAndOp({ op: 'source', startId: 'root' }));
+  out.backendFatalRecycle = { res, recycleCalls, clientCalls: calls, sessionDead: d.sessionDead };
+}
+
 // ── 2. op() RpcError.type → W3C error class mapping ───────────────────────────────────────────
 {
   const types = {
@@ -306,6 +327,23 @@ describe('FlaUINativeDriver core (state machine, op mapping, timeouts, caps)', f
       expect(out.autoRecycleFailed.res.name).to.equal('UnknownError');
       expect(out.autoRecycleFailed.res.msg).to.match(/could not be recycled/);
       expect(out.autoRecycleFailed.sessionDead).to.equal(false);
+    });
+
+    it('a "backend fatal" RpcError (autoRecycle off) is treated as TRANSPORT failure: stop(), latched dead, NoSuchDriverError', () => {
+      const r = out.backendFatalNoRecycle;
+      expect(r.res.threw).to.equal(true);
+      expect(r.res.name).to.equal('NoSuchDriverError'); // NOT rethrown as a live RpcError
+      expect(r.stopCalls).to.equal(1);
+      expect(r.sessionDead).to.equal(true);
+    });
+
+    it('a "backend fatal" RpcError (autoRecycle on) recycles then retries the op once', () => {
+      const r = out.backendFatalRecycle;
+      expect(r.recycleCalls).to.equal(1);
+      expect(r.clientCalls).to.equal(2); // initial fatal + retry
+      expect(r.res.threw).to.equal(false);
+      expect(r.res.value).to.deep.equal({ revived: true });
+      expect(r.sessionDead).to.equal(false);
     });
   });
 

@@ -32,8 +32,8 @@ sidecar** (`sidecar/`).
   RPC host or the process indefinitely.
 - All op-interpreter exceptions are caught at the boundary and returned as `{ ok:false, error:{ type, message } }`
   with `type` in the W3C error set.
-- Self-contained publishable for `win-x64` and `win-arm64` (ADR-009). Target a current LTS `net8.0-windows`
-  (or net9.0-windows) TFM.
+- Self-contained publishable for `win-x64`, `win-x86` and `win-arm64` (ADR-009). Target the current LTS
+  `net10.0-windows` TFM (reaches Windows 10 1607 / Server 2016, same OS floor as net8 but supported to ~2028).
 - You are on macOS: the FlaUI/UIA references are Windows-only, so `dotnet build` of the UIA parts will not
   run here. Write the code, keep it well-structured, and clearly mark what must be compiled/run on Windows.
   Pure-logic pieces (op (de)serialization, registry, XML emit given a fake tree) can be unit-tested cross-platform.

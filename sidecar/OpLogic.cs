@@ -27,6 +27,10 @@ public static class OpLogic
         public const string NoSuchElement = "no such element";
         public const string InvalidArgument = "invalid argument";
         public const string InvalidSelector = "invalid selector";
+        /// <summary>The backend (UIA scheduler) is unrecoverable — too many poisoned worker threads. NOT a
+        /// normal op error: the TS layer must treat it like a transport failure (markDead / recycle), never
+        /// as a "backend still alive" RpcError. (P1-4, anti-hang layer 5.)</summary>
+        public const string BackendFatal = "backend fatal";
     }
 
     // ── modifier parsing ──────────────────────────────────────────────────────────────────────────
@@ -167,6 +171,29 @@ public static class OpLogic
     public static TimeSpan UiaDefault(TimeSpan opTimeout) =>
         TimeSpan.FromMilliseconds(Math.Max(1000, Math.Min(20_000, opTimeout.TotalMilliseconds - 5_000)));
 
+    // ── /session watchdog budget (P0-1) ──────────────────────────────────────────────────────────────
+    /// <summary>Watchdog timeout for the WHOLE /session setup, which legitimately runs far longer than a
+    /// per-op (the attach poll can take <c>attachBudget</c>, and each resolve may wait <c>rootWait</c> for
+    /// the top-level window to surface). The default 30s per-op watchdog is far too short and would poison
+    /// the worker on a slow attach/launch. Worst case is the larger of the attach path
+    /// (<c>attachBudget + rootWait</c>) and the launch path (<c>2·rootWait</c> — initial resolve plus the
+    /// single-instance hand-off retry), plus a grace margin. Pure so it is unit-testable cross-platform.</summary>
+    public static TimeSpan SessionSetupTimeout(TimeSpan attachBudget, TimeSpan rootWait, TimeSpan? grace = null)
+    {
+        var attachPath = attachBudget + rootWait;
+        var launchPath = rootWait + rootWait;
+        var worst = attachPath > launchPath ? attachPath : launchPath;
+        return worst + (grace ?? TimeSpan.FromSeconds(15));
+    }
+
+    // ── orphan-guard self-exit decision (P0-2) ───────────────────────────────────────────────────────
+    /// <summary>The idle/orphan guard may self-exit ONLY when no request is in flight AND the sidecar has
+    /// been idle at least <c>idleTimeout</c>. A positive in-flight count means a long op is still running,
+    /// so the exit is blocked regardless of idle — a long op (e.g. a heavy prerun, or operationTimeout >
+    /// idleTimeout) is never cut mid-flight. (idleTimeout ≤ 0 = "never reap" is handled by the caller.)</summary>
+    public static bool ShouldSelfExit(int inFlight, TimeSpan idle, TimeSpan idleTimeout) =>
+        inFlight == 0 && idle >= idleTimeout;
+
     // ── error → W3C classifier ──────────────────────────────────────────────────────────────────────
     /// <summary>Pure exception-TYPE → W3C error-type mapping (the testable form of RunOp's catch table).
     /// Classifies by runtime type-name string so this stays FlaUI-free even though some of the custom
@@ -179,7 +206,7 @@ public static class OpLogic
             switch (t.Name)
             {
                 case nameof(TimeoutException): return W3C.Timeout;
-                case "SchedulerFatalException": return W3C.UnknownError;
+                case "SchedulerFatalException": return W3C.BackendFatal;
                 case "StaleElementException": return W3C.StaleElementReference;
                 case "ElementNotFoundException": return W3C.NoSuchElement;
                 case "InvalidArgumentException": return W3C.InvalidArgument;
@@ -201,4 +228,84 @@ public static class OpLogic
 
     /// <summary>A point at the rect's top-left plus an explicit (dx, dy) offset — the documented offset semantics.</summary>
     public static IntPoint OffsetFrom(IntRect r, int dx, int dy) => new(r.X + dx, r.Y + dy);
+
+    // ── scroll delta resolution (P2-7b) ───────────────────────────────────────────────────────────
+    /// <summary>Resolve a wheel scroll into (dx, dy) notches from the optional {deltaX, deltaY, amount} args.
+    /// <list type="bullet">
+    /// <item>When deltaX/deltaY are given, <c>amount</c> (default 1) MULTIPLIES them — a convenience scale.</item>
+    /// <item>When NEITHER delta is given, <c>amount</c> is taken as a VERTICAL scroll of that many notches
+    /// (so <c>{amount}</c> alone scrolls instead of silently no-op'ing). Sign = direction (FlaUI wheel
+    /// convention: positive scrolls up, negative down). Missing amount here → no scroll.</item>
+    /// </list></summary>
+    public static (double dx, double dy) ScrollDelta(double? deltaX, double? deltaY, double? amount)
+    {
+        if (deltaX is null && deltaY is null)
+            return (0, amount ?? 0);           // amount-only → vertical notches (was a silent 0 no-op)
+        var scale = amount ?? 1;               // deltas given → amount multiplies them
+        return ((deltaX ?? 0) * scale, (deltaY ?? 0) * scale);
+    }
+
+    // ── drag interpolation (P2-7d) ────────────────────────────────────────────────────────────────
+    /// <summary>Interpolated pointer path from <c>(fromX,fromY)</c> to <c>(toX,toY)</c> for a timed drag, so a
+    /// DnD target that samples pointer velocity sees gradual movement instead of an instant jump. Splits the
+    /// duration into ~<paramref name="stepMs"/> steps; the LAST point is always exactly the destination. A
+    /// non-positive duration yields a single step (the destination). Pure so it is unit-testable.</summary>
+    public static IReadOnlyList<IntPoint> DragPath(int fromX, int fromY, int toX, int toY,
+        double durationMs, double stepMs = 15)
+    {
+        var steps = durationMs <= 0 ? 1 : Math.Max(1, (int)Math.Round(durationMs / Math.Max(1, stepMs)));
+        var pts = new List<IntPoint>(steps);
+        for (var i = 1; i <= steps; i++)
+        {
+            var t = (double)i / steps;
+            pts.Add(new IntPoint(
+                (int)Math.Round(fromX + (toX - fromX) * t),
+                (int)Math.Round(fromY + (toY - fromY) * t)));
+        }
+        return pts;
+    }
+
+    // ── page-source XML sanitization (P2-8) ───────────────────────────────────────────────────────
+    /// <summary>Strip characters that are illegal in XML 1.0 from a text/attribute value, so a legacy Win32
+    /// app's control characters (0x00–0x08, 0x0B, 0x0C, 0x0E–0x1F, lone surrogates) can't make
+    /// <c>XmlWriter</c> throw and blow up the whole <c>page_source</c>. Tab/LF/CR and valid surrogate PAIRS
+    /// (real supplementary code points, e.g. emoji) are preserved. Pure so it is unit-testable.</summary>
+    public static string SanitizeXmlText(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return s ?? string.Empty;
+        if (IsAllLegalXml(s)) return s;                 // fast path: nothing to strip
+        var sb = new System.Text.StringBuilder(s.Length);
+        for (var i = 0; i < s.Length; i++)
+        {
+            var c = s[i];
+            if (char.IsHighSurrogate(c) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]))
+            {
+                sb.Append(c).Append(s[i + 1]);          // valid pair → always legal XML
+                i++;
+            }
+            else if (IsLegalXmlChar(c))
+            {
+                sb.Append(c);
+            }
+            // else: illegal control char or lone surrogate → drop
+        }
+        return sb.ToString();
+    }
+
+    private static bool IsAllLegalXml(string s)
+    {
+        for (var i = 0; i < s.Length; i++)
+        {
+            var c = s[i];
+            if (char.IsHighSurrogate(c) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1])) { i++; continue; }
+            if (!IsLegalXmlChar(c)) return false;
+        }
+        return true;
+    }
+
+    // XML 1.0 Char production (excluding surrogate halves, handled as pairs by the callers above).
+    private static bool IsLegalXmlChar(char c) =>
+        c == '\t' || c == '\n' || c == '\r' ||
+        ((int)c >= 0x20 && (int)c <= 0xD7FF) ||
+        ((int)c >= 0xE000 && (int)c <= 0xFFFD);
 }

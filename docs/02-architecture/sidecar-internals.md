@@ -7,7 +7,7 @@
 > [RPC protocol](../03-reference/rpc-protocol.md); for the watchdog / poison / recycle
 > story see [stability](./stability.md).
 
-The sidecar is a self-contained .NET 8 (`net8.0-windows`) console app that hosts a minimal
+The sidecar is a self-contained .NET 10 (`net10.0-windows`) console app that hosts a minimal
 Kestrel server on loopback and does all UI Automation through [FlaUI](https://github.com/FlaUI/FlaUI)
 (UIA3 by default, UIA2 selectable). It ships as a single-file, self-contained
 `prebuilt/<arch>/FlaUiSidecar.exe`. The TypeScript driver spawns it, reads its port off
@@ -26,7 +26,7 @@ Source lives in `sidecar/`. The pieces:
 | `PageSourceBuilder.cs` | Builds the page-source XML. Iterative stack-based DFS (no recursion → safe on deep trees) producing a correctly nested tree; tag = ControlType leaf; the attribute set is the full UIA property list, x/y relative to the start element, and Window/Transform pattern attrs — the same schema the XPath engine matches against. |
 | `Win32.cs` | Minimal `user32`/`kernel32` P/Invoke for reliable window foregrounding (the `AttachThreadInput` trick that beats the foreground lock), an escalating strong-foreground path (topmost toggle → minimize/restore), and a `MoveWindow` fallback when a window has no usable UIA `TransformPattern`. |
 | `ClipboardImage.cs` | Image clipboard get/set via Win32 clipboard P/Invoke (no WinForms, keeps the Web SDK build clean). Driver exchanges images as PNG bytes; on the Windows clipboard they live as **CF_DIB**, with PNG↔DIB conversion via `System.Drawing.Bitmap`. Must run on an STA thread — the scheduler worker already is. |
-| `FlaUiSidecar.csproj` | The project: `Microsoft.NET.Sdk.Web`, `net8.0-windows`, `FlaUI.UIA3`/`FlaUI.UIA2` 4.0, `TextCopy` for plaintext clipboard. Tests/spikes are excluded from the exe. |
+| `FlaUiSidecar.csproj` | The project: `Microsoft.NET.Sdk.Web`, `net10.0-windows`, `FlaUI.UIA3`/`FlaUI.UIA2` 4.0, `TextCopy` for plaintext clipboard. Tests/spikes are excluded from the exe. |
 
 ## STA worker model
 

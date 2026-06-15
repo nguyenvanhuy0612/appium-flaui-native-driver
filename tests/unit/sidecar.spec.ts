@@ -34,6 +34,25 @@ describe('Sidecar process manager', () => {
     expect(Date.now() - t0, 'stop() must return promptly on an already-exited process').to.be.lessThan(1_500);
   });
 
+  it('P0-3: a spawn-level failure rejects start() cleanly (no uncaughtException)', async () => {
+    // A non-existent command makes Node emit 'error' (ENOENT) on the process — NOT a normal 'exit'. Without
+    // the persistent 'error' listener this escalates to a process-level uncaughtException that can crash the
+    // Appium server. start() must instead reject with a clear, path-bearing message.
+    const bogus = path.resolve(import.meta.dirname, '../fixtures/does-not-exist-flaui-sidecar.exe');
+    const sc = new Sidecar({ command: bogus, args: [], startupTimeoutMs: 1_000 });
+    let err: Error | undefined;
+    try {
+      await sc.start();
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err, 'start() must reject on a spawn failure').to.be.instanceOf(Error);
+    expect(err!.message).to.include(bogus);
+    expect(sc.hasExited, 'the failed process must read as exited').to.equal(true);
+    expect(sc.isRunning, 'a process that never launched is not running').to.equal(false);
+    expect(sc.exitReason).to.match(/failed to start/);
+  });
+
   it('C: tracks process death (hasExited / exitReason)', async () => {
     const sc = new Sidecar({ command: process.execPath, args: [FAKE] });
     await sc.start();

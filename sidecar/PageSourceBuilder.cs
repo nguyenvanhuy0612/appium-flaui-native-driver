@@ -130,5 +130,7 @@ public static class PageSourceBuilder
     }
 
     private static void WriteAttr(XmlWriter w, string name, object? value) =>
-        w.WriteAttributeString(name, value?.ToString() ?? string.Empty);
+        // Sanitize first (P2-8): a legacy Win32 control char in e.g. Name would otherwise make
+        // WriteAttributeString throw and fail the entire page_source.
+        w.WriteAttributeString(name, OpLogic.SanitizeXmlText(value?.ToString()));
 }

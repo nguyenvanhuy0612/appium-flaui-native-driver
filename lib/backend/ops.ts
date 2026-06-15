@@ -49,7 +49,10 @@ export type W3CErrorType =
   | 'no such element'
   | 'invalid selector'
   | 'invalid argument'
-  | 'unknown error';
+  | 'unknown error'
+  // The UIA scheduler is unrecoverable (≥5 poisoned workers). Although the sidecar ANSWERED, this is not a
+  // live-session error: the driver routes it through the transport-failure path (markDead / recycle), P1-4.
+  | 'backend fatal';
 
 export type BackendResult<T = unknown> =
   | { ok: true; value: T }
@@ -71,6 +74,14 @@ export const inputOp = (
   kind: Extract<BackendOp, { op: 'input' }>['kind'],
   args: Record<string, unknown>,
 ): BackendOp => ({ op: 'input', kind, args });
+
+/**
+ * Map a W3C Actions pointer `button` index to the sidecar's button name (P2-7c). Per the W3C spec the
+ * numeric buttons are 0=left, 1=middle, 2=right; the old `=== 2 ? 'right' : 'left'` collapsed the middle
+ * button (1) to left. Anything outside 0/1/2 defaults to left.
+ */
+export const w3cPointerButtonName = (button: number | undefined): 'left' | 'middle' | 'right' =>
+  button === 2 ? 'right' : button === 1 ? 'middle' : 'left';
 
 /** File-transfer op (insecure feature, ADR-008): pull/push a file or pull a folder as a base64 ZIP. */
 export const fileOp = (

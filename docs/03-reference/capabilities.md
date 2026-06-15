@@ -75,7 +75,7 @@ The standard appium-windows-driver caps the driver honours, plus a few advisory 
 | `appium:newCommandTimeout` | number (s) | base-driver default | Idle-command reaping. Drives the sidecar idle bound (`flaui:idleTimeout`) — see [stability](../02-architecture/stability.md). |
 | `ms:waitForAppLaunch` | number (s) | — | Settle delay after launch; also extends the `/session` launch wait. |
 | `ms:forcequit` | boolean | `false` | Force-quit the app on teardown (advisory). |
-| `typeDelay` | number (ms) | — | Per-keystroke delay. **Accepted but not yet applied** — keystrokes are sent without an inter-character delay. |
+| `typeDelay` | number (ms) | — | Per-keystroke delay applied to `send_keys` and `windows: keys` typing (the sidecar paces characters by this many ms). Overridable at runtime via `windows: typeDelay`. |
 | `includeContextElementInSearch` | boolean | `true` | Searches include the context element itself (e.g. `//Window` matches the session root). |
 | `convertAbsoluteXPathToRelativeFromElement` | boolean | `false` | When `true`, a find-from-element whose XPath starts with `//` is rewritten to `.//`, so a leading `//` means "from this context element" rather than "from the document root". |
 | `prerun` | object | — | `{script}`/`{command}` PowerShell run at session start. Gated by the `flauinative:power_shell` insecure feature. |

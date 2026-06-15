@@ -8,7 +8,7 @@
 
 `appium-flaui-native-driver` is an **Appium 3 Windows UI-automation driver** built as two processes:
 a **TypeScript Appium driver** that speaks the W3C WebDriver protocol to your test client, and a
-compiled **C#/.NET 8 FlaUI sidecar** that does the actual UI Automation (UIA3) work. They talk over
+compiled **C#/.NET 10 FlaUI sidecar** that does the actual UI Automation (UIA3) work. They talk over
 **localhost HTTP with a structured-JSON RPC** — the "seam" is typed ops, never PowerShell strings
 ([ADR-003](../04-design/decisions.md)).
 
@@ -35,7 +35,7 @@ flowchart TB
     subgraph node["Appium server process (Node.js)"]
         driver["TS DRIVER — FlaUINativeDriver (lib/driver.ts)<br/>W3C commands · windows: extensions · XPath 1.0 (lib/xpath)<br/>sidecar lifecycle (backend/sidecar.ts) · RPC client + timeouts (backend/rpc-client.ts)"]
     end
-    subgraph side["SIDECAR process — FlaUiSidecar.exe (.NET 8, single file)"]
+    subgraph side["SIDECAR process — FlaUiSidecar.exe (.NET 10, single file)"]
         host["Kestrel HTTP host (Program.cs)"]
         sched["UiaScheduler — ONE serialized STA worker + per-op watchdog"]
         interp["OpInterpreter — JSON op → FlaUI/UIA3"]
@@ -83,8 +83,8 @@ wire shapes for step 2–5 live in the [RPC protocol](../03-reference/rpc-protoc
 
 ## Packaging
 
-The sidecar is published with `dotnet publish -r win-x64 --self-contained -p:PublishSingleFile=true`
-to `prebuilt/<arch>/FlaUiSidecar.exe` (~180 MB, no .NET install needed on the target). The npm
+The sidecar is published with `dotnet publish -r win-x64 --self-contained -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true`
+to `prebuilt/<arch>/FlaUiSidecar.exe` (no .NET install needed on the target). The npm
 package ships `build/**/*.js` + `prebuilt/*/FlaUiSidecar.exe`; at session start the driver resolves
 the exe for the current architecture and spawns it. Build/publish runs on the Windows build box
 (see [operations](../05-operations/clean-reinstall.md)).

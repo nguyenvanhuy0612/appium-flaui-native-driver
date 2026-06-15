@@ -160,8 +160,10 @@ public class OpLogicTests
         Assert.Equal(W3C.Timeout, ClassifyError(new TimeoutException()));
 
     [Fact]
-    public void ClassifyError_SchedulerFatal_IsUnknownError() =>
-        Assert.Equal(W3C.UnknownError, ClassifyError(new SchedulerFatalException(5)));
+    public void ClassifyError_SchedulerFatal_IsBackendFatal() =>
+        // P1-4: must be its OWN type so the TS layer routes it through transport-failure (markDead / recycle),
+        // not as a generic "unknown error" RpcError that would be treated as "backend still alive".
+        Assert.Equal(W3C.BackendFatal, ClassifyError(new SchedulerFatalException(5)));
 
     [Fact]
     public void ClassifyError_StaleElement() =>
@@ -301,6 +303,56 @@ public class OpLogicTests
     public void CreateSessionTimeout_HonoursCustomDefault() =>
         Assert.Equal(1_000, CreateSessionTimeout(null, 1_000).TotalMilliseconds);
 
+    // ── /session setup watchdog (P0-1) ──────────────────────────────────────────────────────────────
+    [Fact]
+    public void SessionSetupTimeout_ExceedsAttachBudgetPlusRootWait()
+    {
+        // Defaults: attach 60s + root 10s. The watchdog MUST clear attach+root so a slow attach is not
+        // chopped by the 30s per-op default.
+        var attach = TimeSpan.FromSeconds(60);
+        var root = TimeSpan.FromSeconds(10);
+        var deadline = SessionSetupTimeout(attach, root);
+        Assert.True(deadline >= attach + root, $"deadline {deadline} must be ≥ attach+root {attach + root}");
+        Assert.Equal((attach + root + TimeSpan.FromSeconds(15)).TotalMilliseconds, deadline.TotalMilliseconds);
+    }
+
+    [Fact]
+    public void SessionSetupTimeout_CoversLaunchPath_WhenRootWaitDominates()
+    {
+        // Tiny attach budget but a large root wait: the launch path (2·rootWait, the initial resolve plus the
+        // single-instance hand-off retry) dominates and must still be covered.
+        var attach = TimeSpan.FromSeconds(1);
+        var root = TimeSpan.FromSeconds(30);
+        var deadline = SessionSetupTimeout(attach, root);
+        Assert.True(deadline >= root + root, $"deadline {deadline} must be ≥ 2·rootWait {root + root}");
+    }
+
+    [Fact]
+    public void SessionSetupTimeout_HonoursCustomGrace() =>
+        Assert.Equal(
+            (TimeSpan.FromSeconds(60) + TimeSpan.FromSeconds(10) + TimeSpan.FromSeconds(5)).TotalMilliseconds,
+            SessionSetupTimeout(TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5)).TotalMilliseconds);
+
+    // ── orphan-guard self-exit decision (P0-2) ───────────────────────────────────────────────────────
+    [Fact]
+    public void ShouldSelfExit_BlockedWhileInFlight_RegardlessOfIdle()
+    {
+        // A long op (in-flight > 0) must NEVER be cut, even when idle far exceeds the timeout.
+        Assert.False(ShouldSelfExit(1, TimeSpan.FromHours(1), TimeSpan.FromSeconds(180)));
+        Assert.False(ShouldSelfExit(3, TimeSpan.FromHours(1), TimeSpan.FromSeconds(180)));
+    }
+
+    [Fact]
+    public void ShouldSelfExit_ExitsWhenIdleAndNothingInFlight()
+    {
+        Assert.True(ShouldSelfExit(0, TimeSpan.FromSeconds(200), TimeSpan.FromSeconds(180)));
+        Assert.True(ShouldSelfExit(0, TimeSpan.FromSeconds(180), TimeSpan.FromSeconds(180))); // boundary: idle == timeout
+    }
+
+    [Fact]
+    public void ShouldSelfExit_StaysAliveWhenNotYetIdle() =>
+        Assert.False(ShouldSelfExit(0, TimeSpan.FromSeconds(100), TimeSpan.FromSeconds(180)));
+
     // ── point / rect math ─────────────────────────────────────────────────────────────────────────
     [Fact]
     public void Center_EvenDimensions()
@@ -322,5 +374,108 @@ public class OpLogicTests
     {
         var p = OffsetFrom(new IntRect(100, 200, 50, 50), 5, 9);
         Assert.Equal(new IntPoint(105, 209), p);
+    }
+
+    // ── scroll delta (P2-7b) ──────────────────────────────────────────────────────────────────────
+    [Fact]
+    public void ScrollDelta_AmountAlone_ScrollsVertically()
+    {
+        // The bug: amount-only used to compute dy = 0 (silent no-op). Now amount IS the vertical notches.
+        Assert.Equal((0d, 3d), ScrollDelta(null, null, 3));
+        Assert.Equal((0d, -2d), ScrollDelta(null, null, -2));
+    }
+
+    [Fact]
+    public void ScrollDelta_AmountMultipliesGivenDeltas()
+    {
+        Assert.Equal((0d, 6d), ScrollDelta(null, 3, 2));
+        Assert.Equal((4d, 0d), ScrollDelta(2, null, 2));
+        Assert.Equal((2d, 4d), ScrollDelta(1, 2, 2));
+    }
+
+    [Fact]
+    public void ScrollDelta_DeltasWithoutAmount_PassThrough()
+    {
+        Assert.Equal((0d, 5d), ScrollDelta(null, 5, null));
+        Assert.Equal((3d, 0d), ScrollDelta(3, null, null));
+    }
+
+    [Fact]
+    public void ScrollDelta_NothingGiven_NoScroll() =>
+        Assert.Equal((0d, 0d), ScrollDelta(null, null, null));
+
+    // ── drag interpolation (P2-7d) ────────────────────────────────────────────────────────────────
+    [Fact]
+    public void DragPath_LastPointIsExactlyDestination()
+    {
+        var path = DragPath(0, 0, 100, 40, 150);
+        Assert.Equal(new IntPoint(100, 40), path[^1]);
+    }
+
+    [Fact]
+    public void DragPath_StepCountTracksDuration()
+    {
+        // 150ms / 15ms ≈ 10 steps.
+        Assert.Equal(10, DragPath(0, 0, 100, 0, 150).Count);
+        // ~15ms/step rounds: 75/15 = 5.
+        Assert.Equal(5, DragPath(0, 0, 50, 0, 75).Count);
+    }
+
+    [Fact]
+    public void DragPath_ZeroDuration_SingleStepAtDestination()
+    {
+        var path = DragPath(10, 10, 90, 90, 0);
+        Assert.Single(path);
+        Assert.Equal(new IntPoint(90, 90), path[0]);
+    }
+
+    [Fact]
+    public void DragPath_IsMonotonicTowardDestination()
+    {
+        var path = DragPath(0, 0, 100, 100, 150);
+        for (var i = 1; i < path.Count; i++)
+        {
+            Assert.True(path[i].X >= path[i - 1].X);
+            Assert.True(path[i].Y >= path[i - 1].Y);
+        }
+    }
+
+    // ── XML sanitization (P2-8) ───────────────────────────────────────────────────────────────────
+    [Fact]
+    public void SanitizeXmlText_StripsIllegalControlChars()
+    {
+        // 0x00–0x08 etc. would make XmlWriter throw and blow up page_source.
+        var dirty = "a bcdefg";
+        Assert.Equal("abcdefg", SanitizeXmlText(dirty));
+    }
+
+    [Fact]
+    public void SanitizeXmlText_KeepsTabNewlineCarriageReturn()
+    {
+        var s = "line1\tcol\r\nline2";
+        Assert.Equal(s, SanitizeXmlText(s));
+    }
+
+    [Fact]
+    public void SanitizeXmlText_PreservesValidSurrogatePairs()
+    {
+        // 😀 U+1F600 is a valid supplementary code point (a surrogate PAIR) — must be kept intact.
+        var emoji = "hi 😀!";
+        Assert.Equal(emoji, SanitizeXmlText(emoji));
+    }
+
+    [Fact]
+    public void SanitizeXmlText_DropsLoneSurrogate() =>
+        Assert.Equal("ab", SanitizeXmlText("a\uD83Db")); // high surrogate with no low half → dropped
+
+    [Fact]
+    public void SanitizeXmlText_PassesCleanTextThrough() =>
+        Assert.Equal("Normal Name 123", SanitizeXmlText("Normal Name 123"));
+
+    [Fact]
+    public void SanitizeXmlText_NullOrEmpty()
+    {
+        Assert.Equal(string.Empty, SanitizeXmlText(null));
+        Assert.Equal(string.Empty, SanitizeXmlText(string.Empty));
     }
 }

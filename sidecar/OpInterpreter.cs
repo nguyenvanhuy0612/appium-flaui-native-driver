@@ -113,7 +113,14 @@ public sealed class OpInterpreter
             case "removeFromSelection": el.Patterns.SelectionItem.Pattern.RemoveFromSelection(); break;
             case "scrollIntoView": el.Patterns.ScrollItem.Pattern.ScrollIntoView(); break;
             case "setFocus": el.Focus(); break;
-            case "setValue": SetValue(el, args.GetProperty("value").GetString() ?? string.Empty); break;
+            case "setValue":
+                // append=true is the W3C send_keys path (driver.setValue): TYPE into the existing content.
+                // Absent/false is the replace path (windows: setValue + clear): SetValue/clear-then-type (P1-6).
+                SetValue(el, args.GetProperty("value").GetString() ?? string.Empty,
+                    args.TryGetProperty("append", out var apEl) && apEl.ValueKind == JsonValueKind.True,
+                    args.TryGetProperty("typeDelayMs", out var svDelay) && svDelay.ValueKind == JsonValueKind.Number
+                        ? svDelay.GetInt32() : 0);
+                break;
             case "maximize": el.Patterns.Window.Pattern.SetWindowVisualState(WindowVisualState.Maximized); break;
             case "minimize": el.Patterns.Window.Pattern.SetWindowVisualState(WindowVisualState.Minimized); break;
             case "restore": el.Patterns.Window.Pattern.SetWindowVisualState(WindowVisualState.Normal); break;
@@ -303,10 +310,13 @@ public sealed class OpInterpreter
                 if (WantsBring(args, false)) BasicBringOnTopFromArgs(args);
                 if (args.TryGetProperty("elementId", out _) || args.TryGetProperty("x", out _))
                     Mouse.MoveTo(ResolvePoint(args));
-                // `amount` (optional) multiplies the delta (clients may pass raw deltas; amount is a convenience).
-                var amount = args.TryGetProperty("amount", out var av) ? av.GetDouble() : 1;
-                var dy = (args.TryGetProperty("deltaY", out var dyv) ? dyv.GetDouble() : 0) * amount;
-                var dx = (args.TryGetProperty("deltaX", out var dxv) ? dxv.GetDouble() : 0) * amount;
+                // Resolve {deltaX, deltaY, amount} → notches. `amount` multiplies given deltas, OR (when no
+                // delta is supplied) acts as a vertical scroll of that many notches — so a lone `amount` no
+                // longer silently no-ops (P2-7b). See OpLogic.ScrollDelta.
+                double? deltaX = args.TryGetProperty("deltaX", out var dxv) ? dxv.GetDouble() : null;
+                double? deltaY = args.TryGetProperty("deltaY", out var dyv) ? dyv.GetDouble() : null;
+                double? amount = args.TryGetProperty("amount", out var av) ? av.GetDouble() : null;
+                var (dx, dy) = OpLogic.ScrollDelta(deltaX, deltaY, amount);
                 var mods = ModifiersOf(args);
                 PressModifiers(mods);
                 try
@@ -323,10 +333,12 @@ public sealed class OpInterpreter
                 // this UIA worker. The in-batch `pause` below is a legacy convenience for a single keys op
                 // carrying its own micro-delays; by design it serializes the worker for that short span.
                 // Prefer splitting long pauses across separate ops (the driver's performActions does this).
+                var keysDelayMs = args.TryGetProperty("typeDelayMs", out var kd) && kd.ValueKind == JsonValueKind.Number
+                    ? kd.GetInt32() : 0; // appium:typeDelay / windows: typeDelay — ms between characters
                 foreach (var a in args.GetProperty("actions").EnumerateArray())
                 {
                     if (a.TryGetProperty("pause", out var pz)) { Thread.Sleep(pz.GetInt32()); continue; }
-                    if (a.TryGetProperty("text", out var tx)) { Keyboard.Type(tx.GetString()); continue; }
+                    if (a.TryGetProperty("text", out var tx)) { TypeText(tx.GetString(), keysDelayMs); continue; }
                     if (a.TryGetProperty("virtualKeyCode", out var vk))
                     {
                         var key = (VirtualKeyShort)vk.GetInt32();
@@ -362,12 +374,20 @@ public sealed class OpInterpreter
                     }
                     else
                     {
-                        // Generic press → (hold) → move → release for non-left buttons / timed drags.
+                        // Generic press → move → release for non-left buttons / timed drags. For a timed drag
+                        // (durationMs > 0) interpolate the movement across the duration (P2-7d) so a DnD target
+                        // that samples pointer velocity sees gradual motion instead of an instant jump; the
+                        // final step lands exactly on `to`. Untimed → a single MoveTo.
                         Mouse.Down(button);
                         try
                         {
-                            if (durationMs > 0) Thread.Sleep(durationMs);
-                            Mouse.MoveTo(to);
+                            var path = OpLogic.DragPath(from.X, from.Y, to.X, to.Y, durationMs);
+                            var stepMs = durationMs > 0 ? Math.Max(1, durationMs / path.Count) : 0;
+                            foreach (var p in path)
+                            {
+                                Mouse.MoveTo(new System.Drawing.Point(p.X, p.Y));
+                                if (stepMs > 0) Thread.Sleep(stepMs);
+                            }
                         }
                         finally { Mouse.Up(button); }
                     }
@@ -459,6 +479,15 @@ public sealed class OpInterpreter
         OpLogic.CanonicalModifier.Win => VirtualKeyShort.LWIN,
         _ => throw new InvalidArgumentException($"unmapped modifier: {m}"),
     };
+
+    /// <summary>Type text, optionally pacing each character by <paramref name="delayMs"/> (appium:typeDelay /
+    /// windows: typeDelay). delayMs ≤ 0 → type the whole string in one call (FlaUI's default).</summary>
+    private static void TypeText(string? text, int delayMs)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        if (delayMs <= 0) { Keyboard.Type(text); return; }
+        foreach (var ch in text!) { Keyboard.Type(ch.ToString()); Thread.Sleep(delayMs); }
+    }
 
     private static void PressModifiers(VirtualKeyShort[] mods)
     {
@@ -609,9 +638,16 @@ public sealed class OpInterpreter
             var y = hasY ? r.Y + yv.GetInt32() : r.Y + r.Height / 2;
             return new System.Drawing.Point(x, y);
         }
+        // No element id: x/y are absolute screen coords. When BOTH are absent, fall back to the CURRENT
+        // CURSOR position (P2-7a) — the documented behavior — instead of throwing KeyNotFoundException. A
+        // single missing axis keeps the cursor's value for that axis.
+        var hasAbsX = args.TryGetProperty(xKey, out var ax);
+        var hasAbsY = args.TryGetProperty(yKey, out var ay);
+        if (!hasAbsX && !hasAbsY) return Win32.CursorPos();
+        var cursor = Win32.CursorPos();
         return new System.Drawing.Point(
-            args.GetProperty(xKey).GetInt32(),
-            args.GetProperty(yKey).GetInt32());
+            hasAbsX ? ax.GetInt32() : cursor.X,
+            hasAbsY ? ay.GetInt32() : cursor.Y);
     }
 
     /// <summary>Page source as XML. Schema: the documented page-source schema. NOTE: traversal + property reads are LIVE
@@ -727,11 +763,22 @@ public sealed class OpInterpreter
         _ => TreeScope.Descendants,
     };
 
-    /// <summary>Set an element's value. Prefers ValuePattern.SetValue (atomic, no focus-stealing); falls
-    /// back to focus + Keyboard.Type for controls without ValuePattern (e.g. some RichEdit/Document editors).
-    /// Clearing (empty string) on the keyboard path selects-all then deletes.</summary>
-    private static void SetValue(AutomationElement el, string value)
+    /// <summary>Set an element's value.
+    /// <para><paramref name="append"/> = true (W3C <c>send_keys</c>): focus and TYPE the text into the
+    /// existing content — no clear, no ValuePattern replace — matching Selenium/Appium/WinAppDriver send_keys
+    /// semantics (P1-6).</para>
+    /// <para><paramref name="append"/> = false (<c>windows: setValue</c> / <c>clear</c>): REPLACE — prefer
+    /// ValuePattern.SetValue (atomic, no focus-stealing); fall back to focus + select-all + delete + type for
+    /// controls without a writable ValuePattern (e.g. some RichEdit/Document editors). An empty value clears.</para></summary>
+    private static void SetValue(AutomationElement el, string value, bool append = false, int typeDelayMs = 0)
     {
+        if (append)
+        {
+            // send_keys: type at the current caret into existing content (no clear, no replace).
+            el.Focus();
+            TypeText(value, typeDelayMs);
+            return;
+        }
         var vp = el.Patterns.Value.PatternOrDefault;
         if (vp is not null && vp.IsReadOnly.ValueOrDefault != true)
         {

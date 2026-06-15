@@ -9,6 +9,7 @@ const required = [
   'prebuilt/win-x64/FlaUiSidecar.exe',
 ];
 const warnIfMissing = [
+  'prebuilt/win-x86/FlaUiSidecar.exe',
   'prebuilt/win-arm64/FlaUiSidecar.exe',
 ];
 

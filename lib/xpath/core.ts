@@ -480,6 +480,9 @@ class XPathExecutor {
     private readonly rootId: string,
     /** When true (findElement), the outermost path's last leaf find may use multiple:false. */
     private readonly optimizeLastStep: boolean = false,
+    /** Whether the backend implements walk() — gates per-parent positional expansion of `//Tag[n]`,
+     * which needs the parent axis. A bare-find backend falls back to global positional. */
+    private readonly canWalk: boolean = true,
   ) {}
 
   // --- Top-level node-set resolution (returns elements) --------------------
@@ -545,7 +548,7 @@ class XPathExecutor {
   ): Promise<XElement[]> {
     if (steps.length === 0) return contexts;
 
-    const collapsed = collapseDoubleSlash(steps);
+    const collapsed = collapseDoubleSlash(steps, this.canWalk);
 
     let current = contexts;
     for (let i = 0; i < collapsed.length; i++) {
@@ -899,28 +902,50 @@ class XPathExecutor {
    * steps yield XElements. Used by functions like count(), and by @attr predicate comparisons.
    */
   private async evalNodeSet(node: ExprNode, ctx: EvalCtx): Promise<XValue[]> {
-    // Special-case a relative attribute path (the overwhelmingly common predicate form).
-    if (node.type === RELATIVE_LOCATION_PATH && node.steps.length === 1 && node.steps[0].axis === ATTRIBUTE) {
-      const test = node.steps[0].test;
-      if (test.type === NODE_NAME_TEST) {
-        if (test.name === '*') {
-          const all = await ctx.node.getAllAttributes();
-          return Object.values(all)
-            .filter((v) => v !== undefined && v !== null && String(v) !== '')
-            .map((v) => String(v));
-        }
-        const v = await ctx.node.getProp(test.name);
-        return v === undefined || v === null ? [] : [String(v)];
-      }
-      if (test.type === NODE_TYPE_TEST && test.name === NODE) {
-        const all = await ctx.node.getAllAttributes();
-        return Object.values(all).map((v) => (v === undefined || v === null ? '' : String(v)));
-      }
-      return [];
+    // A location path whose LAST step is an attribute step yields attribute VALUES (strings), not
+    // elements. Resolve the element part (every step before the attribute) relative to the context node,
+    // then read the attribute off each. Handles the common single-step `@x` / `@*` form AND multi-step
+    // forms like `Button/@Name` used inside comparison predicates (e.g. `//Pane[Button/@Name='a']`),
+    // which previously threw "Attribute-axis terminal steps … not supported".
+    const lp =
+      node.type === RELATIVE_LOCATION_PATH
+        ? { steps: node.steps, absolute: false }
+        : node.type === ABSOLUTE_LOCATION_PATH
+          ? { steps: node.steps, absolute: true }
+          : undefined;
+    if (lp && lp.steps.length >= 1 && lp.steps[lp.steps.length - 1].axis === ATTRIBUTE) {
+      const attrStep = lp.steps[lp.steps.length - 1];
+      const elemSteps = lp.steps.slice(0, -1);
+      const els =
+        elemSteps.length === 0
+          ? [ctx.node]
+          : lp.absolute
+            ? await this.walkSteps(elemSteps, [this.rootElement()], false, true)
+            : await this.walkStepsFromMany(elemSteps, [ctx.node], false);
+      return this.collectAttributeValues(els, attrStep.test);
     }
     // Otherwise it is an element-producing path; resolve relative to the context node.
-    const els = await this.resolveToElements(node, [ctx.node]);
-    return els;
+    return this.resolveToElements(node, [ctx.node]);
+  }
+
+  /** Read the values of one attribute test (`@x`, `@*`, or `@node()`) off each element, stringified. */
+  private async collectAttributeValues(els: XElement[], test: NodeTestNode): Promise<XValue[]> {
+    const out: XValue[] = [];
+    for (const el of els) {
+      if (test.type === NODE_NAME_TEST && test.name === '*') {
+        const all = await el.getAllAttributes();
+        for (const v of Object.values(all)) {
+          if (v !== undefined && v !== null && String(v) !== '') out.push(String(v));
+        }
+      } else if (test.type === NODE_TYPE_TEST && test.name === NODE) {
+        const all = await el.getAllAttributes();
+        for (const v of Object.values(all)) out.push(v === undefined || v === null ? '' : String(v));
+      } else if (test.type === NODE_NAME_TEST) {
+        const v = await el.getProp(test.name);
+        if (v !== undefined && v !== null) out.push(String(v));
+      }
+    }
+    return out;
   }
 
   private async evalEquality(
@@ -937,15 +962,13 @@ class XPathExecutor {
       const otherNode = lhsIsNs ? node.rhs : node.lhs;
       const members = await this.evalNodeSet(nsNode, ctx);
       const other = await this.evalExpr(otherNode, ctx);
-      const result = members.some((m) => scalarEquals(m, other));
-      // For an empty node-set, '=' is false and '!=' is false too (no member to compare).
-      // `@attr != 'x'` on a missing attr compares against '' (the scalar), so fall back to scalar ''
-      // when the node-set is empty.
-      if (members.length === 0) {
-        const fallback = scalarEquals('', other);
-        return eq ? fallback : !fallback;
-      }
-      return eq ? result : !members.every((m) => scalarEquals(m, other));
+      // §3.4: a comparison involving an EMPTY node-set is always false — for `=` AND for `!=` alike
+      // (there is no member to satisfy the existential). Previously `!=` returned true on an empty set,
+      // which over-selected elements lacking the attribute. Note: standard UIA properties are always
+      // present (e.g. Name defaults to ""), so a genuinely empty node-set only arises for absent/custom
+      // attributes; a present-but-empty value yields members=[""], handled by the existential below.
+      if (members.length === 0) return false;
+      return eq ? members.some((m) => scalarEquals(m, other)) : !members.every((m) => scalarEquals(m, other));
     }
 
     const lhs = await this.evalExpr(node.lhs, ctx);
@@ -1136,7 +1159,7 @@ async function matchesCondition(el: XElement, cond: Condition): Promise<boolean>
     case 'property': {
       const actual = await el.getProp(cond.prop);
       if (typeof cond.value === 'boolean') {
-        return toBoolean(actual as XValue) === cond.value;
+        return coerceActualToBoolean(actual as XValue) === cond.value;
       }
       return String(actual ?? '') === String(cond.value);
     }
@@ -1154,6 +1177,18 @@ function toBoolean(v: XValue): boolean {
   if (typeof v === 'number') return v !== 0 && !Number.isNaN(v);
   if (typeof v === 'string') return v.length > 0;
   return true; // an element node is truthy
+}
+
+/** Coerce a backend property value to a boolean for a boolean-typed structural condition. The driver
+ * returns UIA boolean properties as the page-source strings "True"/"False", so parse those explicitly —
+ * plain XPath string-truthiness (toBoolean) would treat "False" as truthy and invert the predicate on the
+ * TS-side path (reverse/sibling/following/preceding axes). Mirrors coercePropertyValue on the literal side. */
+function coerceActualToBoolean(v: XValue): boolean {
+  if (typeof v === 'string') {
+    if (/^true$/i.test(v.trim())) return true;
+    if (/^false$/i.test(v.trim())) return false;
+  }
+  return toBoolean(v);
 }
 
 function toNumber(v: XValue): number {
@@ -1228,21 +1263,39 @@ function forwardAxisScope(axis: string): TreeScopeName | undefined {
   }
 }
 
-/** Pick 1-based positions (LAST_POSITION → last element) from a list, preserving request order. */
+/** Pick 1-based positions (LAST_POSITION → last element) from a list, preserving request order. A
+ * non-integer position (e.g. `[2.7]`, which means `position()=2.7`) can never equal an integer position,
+ * so it selects nothing — guard with Number.isInteger so a fractional index never reads `els[1.7]`
+ * (undefined) and crashes downstream on `.runtimeId`. */
 function selectPositions(els: XElement[], positions: number[]): XElement[] {
   const out: XElement[] = [];
   for (const p of positions) {
     const idx = p === LAST_POSITION ? els.length - 1 : p - 1;
-    if (idx >= 0 && idx < els.length) out.push(els[idx]);
+    if (Number.isInteger(idx) && idx >= 0 && idx < els.length) out.push(els[idx]);
   }
   return out;
 }
 
+/** True when a step carries a positional predicate (`[n]`, `[last()]`, `[position()…]`) — anywhere that
+ * makes position()/last() matter, so the step must see a per-context node-set, not a flattened one. */
+function hasPositionalPredicate(step: StepNode): boolean {
+  return step.predicates.some((p) => constantPosition(p) !== undefined || referencesPosition(p));
+}
+
 /**
- * Collapse `descendant-or-self::node()/child::x` (what `//x` desugars to) into a single
- * descendant step, so we emit one backend find instead of two.
+ * Collapse `descendant-or-self::node()/child::x` (what `//x` desugars to).
+ *
+ * When the child step has NO positional predicate, fold both steps into a single `descendant::x` find
+ * (one backend round-trip) — a non-positional predicate is a per-element filter, so the flattened set is
+ * fine.
+ *
+ * When the child step HAS a positional predicate (`//x[2]`, `//x[last()]`, …), folding to one flat
+ * `descendant::x[n]` would index the GLOBAL descendant list instead of per-parent (XPath 1.0 says `//x[2]`
+ * is the 2nd x of EACH parent). Re-expand to `descendant::x` (all matches, no position) → `parent::node()`
+ * (regroup by parent) → `child::x[pred]` (the positional applies within each parent context, since
+ * executeStep evaluates positions per context element). Mirrors nova2's PARENT-expansion.
  */
-function collapseDoubleSlash(steps: StepNode[]): StepNode[] {
+function collapseDoubleSlash(steps: StepNode[], canWalk = true): StepNode[] {
   const out: StepNode[] = [];
   for (let i = 0; i < steps.length; i++) {
     const cur = steps[i];
@@ -1254,7 +1307,15 @@ function collapseDoubleSlash(steps: StepNode[]): StepNode[] {
       cur.predicates.length === 0 &&
       next.axis === CHILD
     ) {
-      out.push({ axis: DESCENDANT, test: next.test, predicates: next.predicates });
+      // Per-parent expansion needs the parent axis (walk). A bare-find backend can't navigate to parents,
+      // so fall back to the single-step global collapse there (best effort; the production driver has walk).
+      if (canWalk && hasPositionalPredicate(next)) {
+        out.push({ axis: DESCENDANT, test: next.test, predicates: [] });
+        out.push({ axis: PARENT, test: { type: NODE_TYPE_TEST, name: NODE }, predicates: [] });
+        out.push({ axis: CHILD, test: next.test, predicates: next.predicates });
+      } else {
+        out.push({ axis: DESCENDANT, test: next.test, predicates: next.predicates });
+      }
       i++;
       continue;
     }
@@ -1314,9 +1375,11 @@ export async function xpathToElementIds(
   }
 
   const resolved = normalizeBackend(backend);
+  // A bare `find` callback (legacy) has no walk(); per-parent positional needs the parent axis, so gate it.
+  const canWalk = typeof backend !== 'function';
   // Absolute paths (`/…`, `//…`) always resolve from the automation root, regardless of context.
   // The context element only seeds relative paths.
-  const executor = new XPathExecutor(resolved, AUTOMATION_ROOT_ID, !multiple);
+  const executor = new XPathExecutor(resolved, AUTOMATION_ROOT_ID, !multiple, canWalk);
   const startNode = new XElement(contextId ?? AUTOMATION_ROOT_ID, resolved);
   const els = await executor.resolveToElements(parsed, [startNode]);
   const ids = els.map((e) => e.runtimeId);

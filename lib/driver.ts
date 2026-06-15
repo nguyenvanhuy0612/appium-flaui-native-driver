@@ -14,6 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Sidecar } from './backend/sidecar.js';
 import { RpcError } from './backend/rpc-client.js';
+import { sessionRpcTimeoutMs } from './backend/timeouts.js';
 import {
   findOp,
   propertyCondition,
@@ -21,6 +22,7 @@ import {
   actionOp,
   sourceOp,
   inputOp,
+  w3cPointerButtonName,
   fileOp,
   type BackendOp,
   type BasicProps,
@@ -169,7 +171,11 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     driverData?: DriverData[],
   ): Promise<DefaultCreateSessionResult<Constraints>> {
     const [sessionId, caps] = await super.createSession(w3cCaps1, w3cCaps2, w3cCaps3, driverData);
-    const arch = process.arch === 'arm64' ? 'win-arm64' : 'win-x64';
+    // Pick the sidecar build matching the host process bitness: arm64 → win-arm64, 32-bit (ia32) → win-x86,
+    // everything else → win-x64. (Node's process.arch reflects the Node/Appium process; on true 32-bit
+    // Windows that is 'ia32'.) All three are published self-contained, so no .NET runtime install is needed.
+    const arch =
+      process.arch === 'arm64' ? 'win-arm64' : process.arch === 'ia32' ? 'win-x86' : 'win-x64';
     const exe = path.resolve(__dirname, `../../prebuilt/${arch}/FlaUiSidecar.exe`);
     if (!this.opts.app && !this.opts.appTopLevelWindow && !this.opts.appName && !this.opts.processName) {
       throw new Error(
@@ -178,6 +184,9 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     }
     this.sidecarExe = exe;
     this.operationTimeoutMs = this.opts['flaui:operationTimeout'];
+    // appium:typeDelay (ms between typed characters) — apply the session capability up front so it is honoured
+    // without needing an explicit `windows: typeDelay` call. `windows: typeDelay` can still override at runtime.
+    if (typeof this.opts.typeDelay === 'number' && this.opts.typeDelay > 0) this.typeDelayMs = this.opts.typeDelay;
     // E — orphan-guard idle self-exit, by default DERIVED from Appium's own session reaping so that
     // setting `newCommandTimeout` alone is sufficient: a long inter-command wait that Appium is keeping
     // alive must never be cut short by the sidecar. We sit just ABOVE newCommandTimeout (a pure backstop
@@ -211,10 +220,10 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     this.sidecar = new Sidecar({ command: exe, args: [], rpcTimeoutMs: opTimeout + 5_000 });
     try {
       await this.sidecar.start();
-      // /session can legitimately take as long as the app-launch wait (ResolveAppRoot loops up to
-      // max(waitForAppLaunch,10)s) — give it that plus a generous buffer instead of the per-op timeout.
-      const launchWaitMs = Math.max((this.opts['ms:waitForAppLaunch'] ?? 0) * 1000, 10_000);
-      await this.sidecar.client.session(this.sessionBody, launchWaitMs + 30_000);
+      // /session can legitimately take as long as the attach poll (createSessionTimeout, default 60s) PLUS
+      // the app-launch root wait — give it that budget instead of the per-op timeout, so the transport
+      // never aborts a slow attach/launch the sidecar is still working on (P0-1).
+      await this.sidecar.client.session(this.sessionBody, this.sessionSetupRpcTimeout());
       // Optional settle delay after app launch (seconds).
       const wait = this.opts['ms:waitForAppLaunch'];
       if (typeof wait === 'number' && wait > 0) await new Promise((r) => setTimeout(r, wait * 1000));
@@ -323,7 +332,11 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     try {
       return await this.sidecar!.client.op<T>(o, rpcTimeout);
     } catch (e) {
-      if (e instanceof RpcError) throw e; // backend answered → session alive
+      // A clean RpcError means the backend answered & is alive — EXCEPT "backend fatal" (P1-4): the UIA
+      // scheduler told us it is unrecoverable, so it must take the transport-failure path below (markDead by
+      // default, or recycle when autoRecycle), never propagate as a live-session error.
+      const backendFatal = e instanceof RpcError && e.type === 'backend fatal';
+      if (e instanceof RpcError && !backendFatal) throw e; // backend answered → session alive
       if (this.autoRecycle) {
         const recovered = await this.tryRecycle();
         if (!recovered) {
@@ -387,8 +400,18 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     }
     const next = new Sidecar({ command: this.sidecarExe!, args: [] });
     await next.start();
-    await next.client.session(this.sessionBody ?? {});
+    // Same /session budget as createSession — a recycle re-runs the full attach/launch, so the 30s default
+    // would reproduce the P0-1 watchdog bug on a slow re-attach.
+    await next.client.session(this.sessionBody ?? {}, this.sessionSetupRpcTimeout());
     this.sidecar = next;
+  }
+
+  /** RPC timeout (ms) for the /session call — shared by createSession and the recycle path (P0-1). */
+  private sessionSetupRpcTimeout(): number {
+    return sessionRpcTimeoutMs({
+      waitForAppLaunchSec: this.opts['ms:waitForAppLaunch'],
+      createSessionTimeoutMs: this.opts.createSessionTimeout,
+    });
   }
 
   /** Issue a backend `find` op via the sidecar RPC and return the matched elements. */
@@ -543,7 +566,16 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
 
   async setValue(text: string | string[], elementId: string): Promise<void> {
     const value = Array.isArray(text) ? text.join('') : text;
-    await this.op(actionOp(elementId, 'setValue', { value }));
+    // W3C send_keys APPENDS into existing content (Selenium/Appium/WinAppDriver semantics) — `append:true`
+    // routes the sidecar to focus + type rather than ValuePattern.SetValue's replace (P1-6). The
+    // `windows: setValue` extension keeps replace semantics (no append flag).
+    // `appium:typeDelay` (ms between characters), when set, paces the typing in the sidecar.
+    await this.op(actionOp(elementId, 'setValue', { value, append: true, ...this.typeDelayArg() }));
+  }
+
+  /** `{ typeDelayMs }` when an `appium:typeDelay` is active, else `{}` — spread into typing ops. */
+  private typeDelayArg(): { typeDelayMs?: number } {
+    return this.typeDelayMs > 0 ? { typeDelayMs: this.typeDelayMs } : {};
   }
 
   async clear(elementId: string): Promise<void> {
@@ -684,10 +716,10 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
           break;
         }
         case 'pointerDown':
-          await this.op(inputOp('down', { button: a.button === 2 ? 'right' : 'left' }));
+          await this.op(inputOp('down', { button: w3cPointerButtonName(a.button) }));
           break;
         case 'pointerUp':
-          await this.op(inputOp('up', { button: a.button === 2 ? 'right' : 'left' }));
+          await this.op(inputOp('up', { button: w3cPointerButtonName(a.button) }));
           break;
         default:
           throw new Error(`unsupported pointer action: ${a.type}`);
@@ -841,7 +873,8 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   private typeDelayMs = 0;
   async windowsCmd_typeDelay(delay: number): Promise<number> {
     const previous = this.typeDelayMs;
-    this.typeDelayMs = delay; // advisory for now (FlaUI Keyboard has its own pacing)
+    // Applied to send_keys/`windows: keys` typing: the sidecar paces characters by this many ms.
+    this.typeDelayMs = delay;
     return previous;
   }
 
@@ -864,6 +897,10 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   /** Shared implementation for every `windows:` INPUT command (mouse/keyboard via FlaUI.Core.Input). */
   async runWindowsInput(kind: string, args: Record<string, unknown>): Promise<unknown> {
     if (!isSupportedInputCommand(kind)) throw new Error(`unsupported windows: input command: ${kind}`);
+    // Apply the active typeDelay to keyboard typing unless the call already specified one.
+    if (kind === 'keys' && args.typeDelayMs === undefined && this.typeDelayMs > 0) {
+      args = { ...args, typeDelayMs: this.typeDelayMs };
+    }
     return this.op(inputOp(kind as 'click' | 'hover' | 'keys' | 'scroll' | 'clickAndDrag', args));
   }
 }
