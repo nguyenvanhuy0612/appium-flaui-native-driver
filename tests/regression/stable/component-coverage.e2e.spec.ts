@@ -29,6 +29,7 @@
 
 import { remote, type Browser } from 'webdriverio';
 import { expect } from 'chai';
+import { requireAppium } from '../../lib/helpers.js';
 
 const APPIUM_URL = process.env.APPIUM_URL ?? 'http://127.0.0.1:4723';
 const url = new URL(APPIUM_URL);
@@ -54,6 +55,7 @@ function baseOpts(extra: Record<string, any> = {}) {
 
 describe('FlaUINative — component coverage (Root)', function () {
     this.timeout(180_000);
+    before(requireAppium);
 
     let driver: Browser;
 
@@ -302,6 +304,7 @@ Write-Output "x*y=$z"
 
 describe('FlaUINative — component coverage (Notepad)', function () {
     this.timeout(180_000);
+    before(requireAppium);
 
     let driver: Browser;
 
@@ -406,6 +409,7 @@ describe('FlaUINative — component coverage (Notepad)', function () {
 
 describe('FlaUINative — component coverage (prerun cap)', function () {
     this.timeout(120_000);
+    before(requireAppium);
 
     it('prerun script runs at session creation', async function () {
         // Side-effect: write a sentinel to a temp file, then read it back
@@ -436,6 +440,7 @@ describe('FlaUINative — component coverage (prerun cap)', function () {
 
 describe('FlaUINative — component coverage (recording)', function () {
     this.timeout(120_000);
+    before(requireAppium);
 
     let driver: Browser;
 

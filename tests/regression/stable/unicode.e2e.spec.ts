@@ -19,6 +19,7 @@
 
 import { remote, type Browser } from 'webdriverio';
 import { expect } from 'chai';
+import { requireAppium } from '../../lib/helpers.js';
 
 const APPIUM_URL = process.env.APPIUM_URL ?? 'http://127.0.0.1:4723';
 // Default to 'Root' (desktop): all assertions are against PS round-trips,
@@ -43,6 +44,7 @@ function psFromCodepoints(text: string): string {
 
 describe('FlaUINative — unicode & PSString escaping', function () {
     this.timeout(120_000);
+    before(requireAppium);
 
     let driver: Browser;
 

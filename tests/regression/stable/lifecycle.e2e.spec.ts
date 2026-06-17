@@ -13,6 +13,7 @@
 
 import { remote, type Browser } from 'webdriverio';
 import { expect } from 'chai';
+import { requireAppium } from '../../lib/helpers.js';
 
 const APPIUM_URL = process.env.APPIUM_URL ?? 'http://127.0.0.1:4723';
 const TARGET_APP = process.env.TARGET_APP ?? 'C:\\Windows\\System32\\notepad.exe';
@@ -41,6 +42,7 @@ function buildOpts() {
 
 describe('FlaUINative — session lifecycle', function () {
     this.timeout(180_000);
+    before(requireAppium);
 
     it('session create completes in under 30s (init no longer hangs)', async function () {
         const start = Date.now();

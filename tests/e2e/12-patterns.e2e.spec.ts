@@ -3,8 +3,9 @@
 // pipeline. Last run on .37 / beta.16 (2026-06-05): 4/5 PASS — expand, collapse,
 // addToSelection+allSelectedItems (reports both items), close. The ONE not-yet-confirmed verb is
 // `removeFromSelection` (the item stayed selected on the ListView fixture) — verify on a real app; it may
-// be a driver bug or a control/UIA-provider quirk. To re-enable: build the fixture (see below), set
-// CONTROLS_APP, run an interactive Appium, and change `describe.skip` back to `describe`.
+// be a driver bug or a control/UIA-provider quirk. To run it: build the fixture (see below), set
+// CONTROLS_APP, and run an interactive Appium. The suite is reachability-guarded (before(requireAppium))
+// and also guards on CONTROLS_APP internally, so it SKIPS cleanly off-Windows / with no server / no fixture.
 //
 // §5/§6 UIA pattern commands — real e2e coverage for the six pattern verbs that 07-extensions only
 // exercises as graceful-degrade no-ops (because Notepad exposes no tree/multi-select/closable-child):
@@ -20,7 +21,7 @@
 // ControlsApp must be published to CONTROLS_APP (default C:\Users\admin\ControlsApp\ControlsApp.exe), and
 // Appium must run in an interactive desktop session so the synthetic click that opens the dialog lands.
 import { expect } from 'chai';
-import { w3c, SessionPool, bringToFront, sleep } from '../lib/helpers.js';
+import { w3c, SessionPool, bringToFront, sleep, requireAppium } from '../lib/helpers.js';
 
 const CONTROLS_APP = process.env.CONTROLS_APP ?? 'C:\\Users\\admin\\ControlsApp\\ControlsApp.exe';
 
@@ -39,8 +40,9 @@ function selectedNames(value: unknown): string[] {
   return els.map((e) => e.name ?? '');
 }
 
-describe.skip('§5/§6 UIA pattern commands (expand/collapse/selection/close)', function () {
+describe('§5/§6 UIA pattern commands (expand/collapse/selection/close)', function () {
   this.timeout(120_000);
+  before(requireAppium);
   const pool = new SessionPool();
   let sid: string;
   before(async () => { sid = await pool.open({ 'appium:app': CONTROLS_APP }); });

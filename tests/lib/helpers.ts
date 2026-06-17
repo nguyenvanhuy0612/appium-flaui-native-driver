@@ -143,6 +143,27 @@ export function parseXml(xml: unknown): { tagCount: number; depthOk: boolean; te
 export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
+ * Mocha `before` hook: skip the suite cleanly when no Appium server is reachable at APPIUM_URL.
+ *
+ * E2E/regression/smoke require a live Appium (with this driver) on a Windows host. Gating is by SERVER
+ * REACHABILITY, not local `process.platform` — APPIUM_URL may point at a remote Windows host from a
+ * non-Windows dev box. When the server is down (the common dev/CI case), the suite SKIPS with a clear
+ * reason instead of failing with opaque connection errors.
+ *
+ * Usage: add `before(requireAppium)` as the first hook in each E2E describe.
+ */
+export async function requireAppium(this: Mocha.Context): Promise<void> {
+  try {
+    const res = await fetch(APPIUM_URL + '/status', { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) throw new Error(`status ${res.status}`);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.log(`  ↷ skipping: no Appium server at ${APPIUM_URL} (${(e as Error).message}) — set APPIUM_URL`);
+    this.skip();
+  }
+}
+
+/**
  * Bring the target app window to the foreground so synthetic pointer/keyboard input lands on it.
  * On a shared interactive desktop other windows can overlap; this makes focus-sensitive tests robust
  * without hard-coding any window geometry. Best-effort: ignores errors from setProcessForeground.

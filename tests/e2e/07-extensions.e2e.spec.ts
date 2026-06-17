@@ -4,11 +4,12 @@
 // crash that kills the session) — asserted via "session survives" checks.
 import { expect } from 'chai';
 import {
-  w3c, SessionPool, findEditable, findWindow, bringToFront, TARGET_APP, TEST_PNG_B64, b64, unb64,
+  w3c, SessionPool, findEditable, findWindow, bringToFront, TARGET_APP, TEST_PNG_B64, b64, unb64, requireAppium,
 } from '../lib/helpers.js';
 
 describe('§5/§6 Extension commands (windows:)', function () {
   this.timeout(180_000);
+  before(requireAppium);
   const pool = new SessionPool();
   let sid: string;
   let edId: string;

@@ -13,6 +13,7 @@
 import { remote, type Browser } from 'webdriverio';
 import { expect } from 'chai';
 import axios from 'axios';
+import { requireAppium } from '../lib/helpers.js';
 
 const APPIUM_URL = process.env.APPIUM_URL ?? 'http://127.0.0.1:4723';
 const TARGET_APP = process.env.TARGET_APP ?? 'C:\\Windows\\System32\\notepad.exe';
@@ -22,6 +23,7 @@ const W3C_KEY = 'element-6066-11e4-a52e-4f735466cecf';
 
 describe('FlaUINative — wider smoke', function () {
     this.timeout(180_000);
+    before(requireAppium);
 
     let driver: Browser;
     let sid: string;

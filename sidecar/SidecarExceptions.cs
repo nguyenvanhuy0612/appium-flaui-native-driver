@@ -15,3 +15,8 @@ public sealed class InvalidArgumentException(string message) : Exception(message
 /// <summary>Raised when a single-element find yields no match (FlaUI's FindFirst returned null).
 /// Mapped to the W3C "no such element" error in Program.cs.</summary>
 public sealed class ElementNotFoundException() : Exception("no such element matched the condition");
+
+/// <summary>Raised when an op targets an element in a state that forbids it — e.g. Element Clear / replace
+/// on a non-editable element (a Window/Pane/Button has no text to clear). Mapped to the W3C
+/// "invalid element state" error in Program.cs (W3C §12.5.2).</summary>
+public sealed class InvalidElementStateException(string message) : Exception(message);

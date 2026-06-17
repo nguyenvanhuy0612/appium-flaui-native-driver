@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-beta.24] - 2026-06-17
+
+### Fixed
+- **Core W3C conformance bugs** (found by a spec review, confirmed on a real Windows host, fixed,
+  and re-verified on-host — `tests/e2e/13-w3c-conformance-bugs.e2e.spec.ts` 8 failing → 9 passing):
+  - **Element Send Keys** now translates W3C key codepoints (Enter, Backspace, Tab, arrows, F-keys,
+    …) into key presses instead of typing them as literal glyphs (§12.5.3).
+  - **New Session** with no launch/attach target capability now returns `session not created`
+    instead of `unknown error` (§8.2).
+  - **Get Element Property** now returns the JSON-typed value (boolean/number/object) instead of a
+    stringified one (§12.4.3).
+  - **Element Clear** on a non-editable element now errors `invalid element state` instead of
+    silently succeeding (§12.5.2).
+  - **Find From Element** now validates the context element for an absolute XPath (stale/invalid
+    context → the correct W3C error) instead of silently searching from the root (§12.3.4).
+  - **`tag name`** with an unknown control type is now a non-match (Find Elements → `[]`) instead of
+    `invalid argument`.
+
+### Added
+- W3C conformance regression suite (`tests/e2e/13-*`) and an end-to-end deploy guide
+  (`docs/DEPLOY.md`) for building + shipping the driver to a Windows host over SSH.
+- Expanded unit coverage: TypeScript 238 → 251, C# 353 → 403.
+- CI workflow running the TypeScript unit suite + C# logic suite on every push/PR; E2E/regression
+  suites now skip cleanly when no Appium server is reachable.
+
 ### Changed
 - Documentation reorganized into a numbered, topic-based tree (overview, architecture,
   reference, design, operations) with a docs index; historical notes moved to an archive.

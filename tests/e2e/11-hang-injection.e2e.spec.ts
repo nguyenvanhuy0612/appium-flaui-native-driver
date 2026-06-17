@@ -19,13 +19,14 @@
 // the Mac against APPIUM_URL on the box; Appium must run in an interactive desktop session so synthetic
 // input lands.
 import { expect } from 'chai';
-import { w3c, SessionPool, sleep } from '../lib/helpers.js';
+import { w3c, SessionPool, sleep, requireAppium } from '../lib/helpers.js';
 
 const HANG_APP = process.env.HANG_APP ?? 'C:\\Users\\admin\\HangApp\\HangApp.exe';
 const OP_TIMEOUT_MS = 3000;
 
 describe('Hang injection — frozen app fails fast, server + session survive (F1)', function () {
   this.timeout(120_000);
+  before(requireAppium);
   const pool = new SessionPool();
   after(async () => { await pool.cleanup(); });
 

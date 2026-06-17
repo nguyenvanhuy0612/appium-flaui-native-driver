@@ -27,6 +27,7 @@ public static class OpLogic
         public const string NoSuchElement = "no such element";
         public const string InvalidArgument = "invalid argument";
         public const string InvalidSelector = "invalid selector";
+        public const string InvalidElementState = "invalid element state";
         /// <summary>The backend (UIA scheduler) is unrecoverable — too many poisoned worker threads. NOT a
         /// normal op error: the TS layer must treat it like a transport failure (markDead / recycle), never
         /// as a "backend still alive" RpcError. (P1-4, anti-hang layer 5.)</summary>
@@ -59,6 +60,101 @@ public static class OpLogic
     public static CanonicalModifier[] ParseModifiers(string commaSeparated) =>
         ParseModifiers((commaSeparated ?? string.Empty)
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+    // ── W3C key-codepoint translation (send_keys, §17.4.2 / §12.5.3) ────────────────────────────────
+    // The W3C WebDriver spec assigns the Unicode Private-Use-Area code points U+E000..U+E03D to special
+    // keys (Backspace, Tab, Return, arrows, F-keys, ...). When a client sends "ab" it MUST be
+    // emulated as: type 'a', press Enter, type 'b' — NOT typed as the literal PUA glyph. We model a parsed
+    // input string as an ordered list of segments: a literal text RUN, or a single special KEY. The exe
+    // turns each Key into a FlaUI VirtualKeyShort (see OpInterpreter.ToVirtualKey) and presses it; this file
+    // stays FlaUI-free by using the neutral CanonicalKey enum.
+
+    /// <summary>Neutral (FlaUI-free) special-key identity, mapped to a FlaUI VirtualKeyShort at the call
+    /// site. Covers the W3C keys we emulate; F1..F12 carry their number in <see cref="KeySegment.FKey"/>.</summary>
+    public enum CanonicalKey
+    {
+        Backspace, Tab, Return, Shift, Control, Alt, Escape, Space,
+        PageUp, PageDown, End, Home, Left, Up, Right, Down, Delete, Insert, Function,
+    }
+
+    /// <summary>One parsed segment of a send-keys string: EITHER a literal text run (<see cref="Text"/>
+    /// non-null) OR a single special key (<see cref="Key"/> non-null). Mutually exclusive.</summary>
+    public readonly record struct KeySegment(string? Text, CanonicalKey? Key, int FKey = 0)
+    {
+        public static KeySegment Literal(string text) => new(text, null);
+        public static KeySegment Special(CanonicalKey key, int fKey = 0) => new(null, key, fKey);
+        public bool IsText => Text is not null;
+    }
+
+    // W3C §17.4.2 Private-Use-Area code points (subset we emulate). Two encodings exist for some keys (the
+    // non-numpad "normal" range U+E000.. and the numpad range U+E03D..); we map the common ones.
+    private static CanonicalKey? MapKeyCodepoint(char c, out int fKey)
+    {
+        fKey = 0;
+        switch (c)
+        {
+            case '': return CanonicalKey.Backspace;
+            case '': return CanonicalKey.Tab;
+            case '': // ENTER
+            case '': return CanonicalKey.Return; // RETURN
+            case '': // SHIFT
+            case '': return CanonicalKey.Shift;  // R_SHIFT
+            case '': // CONTROL
+            case '': return CanonicalKey.Control; // R_CONTROL
+            case '': // ALT
+            case '': return CanonicalKey.Alt;     // R_ALT
+            case '': return CanonicalKey.Escape;
+            case '': return CanonicalKey.Space;
+            case '': // PAGE_UP
+            case '': return CanonicalKey.PageUp;
+            case '': // PAGE_DOWN
+            case '': return CanonicalKey.PageDown;
+            case '': // END
+            case '': return CanonicalKey.End;
+            case '': // HOME
+            case '': return CanonicalKey.Home;
+            case '': // ARROW_LEFT
+            case '': return CanonicalKey.Left;
+            case '': // ARROW_UP
+            case '': return CanonicalKey.Up;
+            case '': // ARROW_RIGHT
+            case '': return CanonicalKey.Right;
+            case '': // ARROW_DOWN
+            case '': return CanonicalKey.Down;
+            case '': // INSERT
+            case '': return CanonicalKey.Insert;
+            case '': // DELETE
+            case '': return CanonicalKey.Delete;
+        }
+        // F1..F12 are a contiguous run U+E031..U+E03C.
+        if (c >= '' && c <= '')
+        {
+            fKey = c - '' + 1; // E031 → F1 … E03C → F12
+            return CanonicalKey.Function;
+        }
+        return null;
+    }
+
+    /// <summary>Split a send-keys input string into ordered <see cref="KeySegment"/>s: maximal literal text
+    /// runs interleaved with single special keys (W3C PUA code points). NUL (U+E000), the W3C "release all"
+    /// reset, is dropped (no-op). Unknown PUA code points fall through as literal text (best-effort). Pure /
+    /// FlaUI-free so the exe can unit-test the mapping and just iterate the result.</summary>
+    public static IReadOnlyList<KeySegment> ParseSendKeys(string? input)
+    {
+        var segments = new List<KeySegment>();
+        if (string.IsNullOrEmpty(input)) return segments;
+        var run = new System.Text.StringBuilder();
+        void Flush() { if (run.Length > 0) { segments.Add(KeySegment.Literal(run.ToString())); run.Clear(); } }
+        foreach (var c in input!)
+        {
+            if (c == '') { continue; } // NULL → release-modifiers reset; we treat as a no-op
+            var key = MapKeyCodepoint(c, out var fKey);
+            if (key is CanonicalKey k) { Flush(); segments.Add(KeySegment.Special(k, fKey)); }
+            else run.Append(c);
+        }
+        Flush();
+        return segments;
+    }
 
     // ── button parsing ────────────────────────────────────────────────────────────────────────────
     /// <summary>Map a mouse-button name to canonical. null/""/"left"/"default" → Left. Case-insensitive.
@@ -106,6 +202,46 @@ public static class OpLogic
             return v;
         throw new InvalidArgumentException(
             $"'{raw}' is not a valid {typeof(TEnum).Name}. Valid values: {string.Join(", ", Enum.GetNames(typeof(TEnum)))}.");
+    }
+
+    // ── editability predicate (Element Clear / replace, W3C §12.5.2) ────────────────────────────────
+    /// <summary>Control types that are inherently text-input editors even when their pattern set looks bare
+    /// (some custom RichEdit/Document controls expose neither a writable ValuePattern nor a settable
+    /// TextPattern through UIA but ARE editable via keystrokes). Programmatic ControlType names.</summary>
+    private static readonly HashSet<string> TextInputControlTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Edit", "Document", "ComboBox",
+    };
+
+    /// <summary>Decide whether an element is editable for the purpose of Element Clear / value-replace
+    /// (W3C §12.5.2: a non-editable element must error with "invalid element state", NOT have destructive
+    /// keystrokes sent to it). FlaUI-free: the caller passes pattern-availability booleans and the
+    /// programmatic ControlType name so this is unit-testable.
+    /// <para>Treated as EDITABLE (conservative — must not break real editors) when ANY of:
+    /// <list type="bullet">
+    /// <item>a writable ValuePattern (the canonical settable text control);</item>
+    /// <item>an editable TextPattern (a focusable text control whose content is set via keystrokes, e.g. some
+    /// RichEdit/Document editors that expose a read-only or no ValuePattern);</item>
+    /// <item>a text-input ControlType (Edit/Document/ComboBox) — covers controls that under-report patterns.</item>
+    /// </list>
+    /// Treated as NON-editable (→ throw) ONLY when none of the above hold (e.g. Window/Pane/Button).</para></summary>
+    public static bool IsEditable(bool hasWritableValuePattern, bool hasEditableTextPattern, string? controlTypeName) =>
+        hasWritableValuePattern
+        || hasEditableTextPattern
+        || (controlTypeName is not null && TextInputControlTypes.Contains(controlTypeName));
+
+    /// <summary>Try to parse an enum value (case-insensitive) WITHOUT throwing. Returns false for an
+    /// unrecognized name. Used by the <c>tag name</c> / ControlType condition build (W3C bug #8): a
+    /// syntactically valid locator naming a control type that doesn't exist must be a NON-MATCH (Find Elements
+    /// → 200 [], Find Element → "no such element"), never an "invalid argument" 400. FlaUI-free: TEnum is a
+    /// plain CLR enum.</summary>
+    public static bool TryParseEnum<TEnum>(string? raw, out TEnum value) where TEnum : struct, Enum
+    {
+        if (Enum.TryParse<TEnum>((raw ?? string.Empty).Trim(), ignoreCase: true, out value)
+            && Enum.IsDefined(typeof(TEnum), value))
+            return true;
+        value = default;
+        return false;
     }
 
     // ── stale-runtime-id detection ──────────────────────────────────────────────────────────────────
@@ -209,6 +345,7 @@ public static class OpLogic
                 case "SchedulerFatalException": return W3C.BackendFatal;
                 case "StaleElementException": return W3C.StaleElementReference;
                 case "ElementNotFoundException": return W3C.NoSuchElement;
+                case "InvalidElementStateException": return W3C.InvalidElementState;
                 case "InvalidArgumentException": return W3C.InvalidArgument;
                 case nameof(ArgumentException): return W3C.InvalidSelector;
             }

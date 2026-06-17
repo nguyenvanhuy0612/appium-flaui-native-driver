@@ -16,6 +16,7 @@
 
 import { remote, type Browser } from 'webdriverio';
 import { expect } from 'chai';
+import { requireAppium } from '../../lib/helpers.js';
 
 const APPIUM_URL = process.env.APPIUM_URL ?? 'http://127.0.0.1:4723';
 // Default to 'Root' (desktop): negative-path tests don't need an app launch,
@@ -44,6 +45,7 @@ function errorCode(e: any): string {
 
 describe('FlaUINative — error surface', function () {
     this.timeout(180_000);
+    before(requireAppium);
 
     let driver: Browser;
 

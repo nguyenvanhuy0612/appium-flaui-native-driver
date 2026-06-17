@@ -1,6 +1,6 @@
 {
   "name": "appium-flaui-native-driver",
-  "version": "0.1.0-beta.23",
+  "version": "0.1.0-beta.24",
   "description": "Appium 3 Windows driver backed by a compiled C# FlaUI sidecar (UIA3/UIA2 + MSAA legacy).",
   "license": "Apache-2.0",
   "author": "Nguyen Van Huy",
@@ -33,10 +33,14 @@
     "build": "tsc -b",
     "prepack": "tsc -b",
     "prepublishOnly": "npm run build && node scripts/assert-package-contents.mjs",
+    "test": "npm run test:unit && npm run test:csharp",
+    "pretest:unit": "tsc -b",
     "test:unit": "mocha --import=tsx 'tests/unit/**/*.spec.ts'",
+    "test:csharp": "dotnet test sidecar/tests --nologo",
     "test:smoke": "mocha --import=tsx --timeout 60000 'tests/smoke/**/*.e2e.spec.ts'",
     "test:e2e:w3c": "mocha --import=tsx --timeout 180000 --slow 30000 'tests/e2e/**/*.e2e.spec.ts'",
     "test:e2e": "mocha --import=tsx 'tests/e2e/**/*.e2e.spec.ts'",
+    "test:regression": "mocha --import=tsx --timeout 180000 --slow 30000 'tests/regression/**/*.e2e.spec.ts'",
     "publish:sidecar": "node scripts/publish-sidecar.mjs"
   },
   "appium": {

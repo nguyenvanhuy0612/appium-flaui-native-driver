@@ -1,9 +1,10 @@
 // §12 Element Retrieval — all strategies, findElements, scoped finds, no-match + invalid selector errors.
 import { expect } from 'chai';
-import { w3c, SessionPool, findEditable, findWindow } from '../lib/helpers.js';
+import { w3c, SessionPool, findEditable, findWindow, requireAppium } from '../lib/helpers.js';
 
 describe('§12 Element Retrieval', function () {
   this.timeout(120_000);
+  before(requireAppium);
   const pool = new SessionPool();
   let sid: string;
   before(async () => { sid = await pool.open(); });

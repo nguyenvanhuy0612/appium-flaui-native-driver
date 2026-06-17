@@ -1,13 +1,14 @@
 // §6 Files & PowerShell — pushFile/pullFile/pullFolder roundtrips (endpoints + execute scripts),
 // powershell stdout, missing-file error. Requires insecure features push_file/pull_file/power_shell.
 import { expect } from 'chai';
-import { w3c, SessionPool, b64, unb64 } from '../lib/helpers.js';
+import { w3c, SessionPool, b64, unb64, requireAppium } from '../lib/helpers.js';
 
 const TEST_FILE = 'C:\\Users\\admin\\flaui-suite-test.txt';
 const TEST_DIR = 'C:\\Users\\admin\\flaui-suite-dir';
 
 describe('§6 Files & PowerShell', function () {
   this.timeout(120_000);
+  before(requireAppium);
   const pool = new SessionPool();
   let sid: string;
   before(async () => { sid = await pool.open(); });

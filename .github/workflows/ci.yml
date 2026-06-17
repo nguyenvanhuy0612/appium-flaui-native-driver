@@ -1,0 +1,37 @@
+name: CI
+
+# Gates every push/PR on the tests that run without a Windows + Appium host:
+#   - TypeScript unit suite (builds first, then mocha)
+#   - C# sidecar logic suite (xUnit, net9.0 — platform-agnostic slice)
+# Windows-only E2E/regression are not run here (they require a live Appium + UIA desktop);
+# they skip cleanly off-Windows via `requireAppium` and are meant for a Windows runner.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  ts-unit:
+    name: TypeScript unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:unit
+
+  csharp-unit:
+    name: C# sidecar logic tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - run: dotnet test sidecar/tests --nologo

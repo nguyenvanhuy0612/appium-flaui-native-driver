@@ -447,6 +447,13 @@ public sealed class OpInterpreter
         try { return el.Properties.NativeWindowHandle.ValueOrDefault; } catch { return IntPtr.Zero; }
     }
 
+    /// <summary>The element's programmatic ControlType name (e.g. "Edit", "Window"), or null if it can't be
+    /// read. Used by the editability predicate so it matches OpLogic's text-input control-type set.</summary>
+    private static string? SafeControlTypeName(AutomationElement el)
+    {
+        try { return el.Properties.ControlType.ValueOrDefault.ToString(); } catch { return null; }
+    }
+
     private static MouseButton ButtonOf(JsonElement args) =>
         args.TryGetProperty("button", out var b) ? ParseButton(b.GetString()) : MouseButton.Left;
 
@@ -480,14 +487,64 @@ public sealed class OpInterpreter
         _ => throw new InvalidArgumentException($"unmapped modifier: {m}"),
     };
 
-    /// <summary>Type text, optionally pacing each character by <paramref name="delayMs"/> (appium:typeDelay /
-    /// windows: typeDelay). delayMs ≤ 0 → type the whole string in one call (FlaUI's default).</summary>
+    /// <summary>Type a W3C send-keys string. Per W3C §17.4.2/§12.5.3 the Unicode PUA key code points
+    /// (Enter, Tab, arrows, F-keys, …) must be EMULATED as key presses, not typed as literal glyphs. We split
+    /// the input into literal text runs + special-key segments (OpLogic.ParseSendKeys, unit-tested) and play
+    /// them in order: <c>Keyboard.Type(run)</c> for text, <c>Keyboard.Type(VirtualKeyShort)</c> for a key.
+    /// <paramref name="delayMs"/> (appium:typeDelay / windows: typeDelay) paces EACH character of a text run
+    /// and each key; ≤ 0 types each run in one call (FlaUI's default).</summary>
     private static void TypeText(string? text, int delayMs)
     {
         if (string.IsNullOrEmpty(text)) return;
-        if (delayMs <= 0) { Keyboard.Type(text); return; }
-        foreach (var ch in text!) { Keyboard.Type(ch.ToString()); Thread.Sleep(delayMs); }
+        var segments = OpLogic.ParseSendKeys(text);
+        foreach (var seg in segments)
+        {
+            if (seg.IsText)
+            {
+                var run = seg.Text!;
+                if (delayMs <= 0) { Keyboard.Type(run); }
+                else foreach (var ch in run) { Keyboard.Type(ch.ToString()); Thread.Sleep(delayMs); }
+            }
+            else
+            {
+                // Special key: press+release the mapped virtual key.
+                Keyboard.Type(ToVirtualKey(seg.Key!.Value, seg.FKey));
+                if (delayMs > 0) Thread.Sleep(delayMs);
+            }
+        }
     }
+
+    /// <summary>Map a neutral <see cref="OpLogic.CanonicalKey"/> (from the FlaUI-free send-keys parser) to a
+    /// FlaUI <see cref="VirtualKeyShort"/>. F-keys carry their number in <paramref name="fKey"/> (1..24).</summary>
+    private static VirtualKeyShort ToVirtualKey(OpLogic.CanonicalKey key, int fKey) => key switch
+    {
+        OpLogic.CanonicalKey.Backspace => VirtualKeyShort.BACK,
+        OpLogic.CanonicalKey.Tab => VirtualKeyShort.TAB,
+        OpLogic.CanonicalKey.Return => VirtualKeyShort.RETURN,
+        OpLogic.CanonicalKey.Shift => VirtualKeyShort.SHIFT,
+        OpLogic.CanonicalKey.Control => VirtualKeyShort.CONTROL,
+        OpLogic.CanonicalKey.Alt => VirtualKeyShort.ALT,
+        OpLogic.CanonicalKey.Escape => VirtualKeyShort.ESCAPE,
+        OpLogic.CanonicalKey.Space => VirtualKeyShort.SPACE,
+        OpLogic.CanonicalKey.PageUp => VirtualKeyShort.PRIOR,
+        OpLogic.CanonicalKey.PageDown => VirtualKeyShort.NEXT,
+        OpLogic.CanonicalKey.End => VirtualKeyShort.END,
+        OpLogic.CanonicalKey.Home => VirtualKeyShort.HOME,
+        OpLogic.CanonicalKey.Left => VirtualKeyShort.LEFT,
+        OpLogic.CanonicalKey.Up => VirtualKeyShort.UP,
+        OpLogic.CanonicalKey.Right => VirtualKeyShort.RIGHT,
+        OpLogic.CanonicalKey.Down => VirtualKeyShort.DOWN,
+        OpLogic.CanonicalKey.Insert => VirtualKeyShort.INSERT,
+        OpLogic.CanonicalKey.Delete => VirtualKeyShort.DELETE,
+        OpLogic.CanonicalKey.Function => FunctionKey(fKey),
+        _ => throw new InvalidArgumentException($"unmapped key: {key}"),
+    };
+
+    /// <summary>Map F1..F24 to the FlaUI VirtualKeyShort F-key members (contiguous enum values).</summary>
+    private static VirtualKeyShort FunctionKey(int n) =>
+        n is >= 1 and <= 24
+            ? (VirtualKeyShort)((int)VirtualKeyShort.F1 + (n - 1))
+            : throw new InvalidArgumentException($"unsupported function key F{n}");
 
     private static void PressModifiers(VirtualKeyShort[] mods)
     {
@@ -691,7 +748,7 @@ public sealed class OpInterpreter
             // FlaUI 4.x exposes a singleton match-all condition via TrueCondition.Default
             // (the ctor is private). FlaUI.Core.Conditions.
             "true" => TrueCondition.Default,
-            "property" => BuildProperty(cf, c),
+            "property" => BuildPropertyCondition(cf, c),
             "and" => c.GetProperty("children").EnumerateArray().Select(BuildCondition)
                        .Aggregate((a, b) => a.And(b)),
             "or" => c.GetProperty("children").EnumerateArray().Select(BuildCondition)
@@ -699,6 +756,24 @@ public sealed class OpInterpreter
             "not" => BuildCondition(c.GetProperty("child")).Not(),
             var k => throw new ArgumentException($"unknown condition kind: {k}"),
         };
+    }
+
+    /// <summary>Build a property condition. ControlType gets special handling (W3C bug #8): a syntactically
+    /// valid <c>tag name</c> locator naming an UNKNOWN control type must produce a NEVER-MATCHING condition
+    /// (so Find Elements → [], Find Element → "no such element") rather than throwing "invalid argument".
+    /// Every other property delegates to <see cref="BuildProperty"/>, where a malformed bool/int IS an
+    /// invalid argument.</summary>
+    private ConditionBase BuildPropertyCondition(ConditionFactory cf, JsonElement c)
+    {
+        var prop = c.GetProperty("prop").GetString()!;
+        if (prop == "ControlType")
+        {
+            // Unrecognized control-type NAME → unmatchable condition (not invalid argument). A recognized
+            // name proceeds through BuildProperty as before.
+            if (!OpLogic.TryParseEnum<ControlType>(c.GetProperty("value").GetString(), out _))
+                return FalseCondition.Default;
+        }
+        return BuildProperty(cf, c);
     }
 
     /// <summary>Build a UIA PropertyCondition for any of the allow-listed condition properties, converting the
@@ -785,6 +860,15 @@ public sealed class OpInterpreter
             vp.SetValue(value);
             return;
         }
+        // W3C §12.5.2: a non-editable element (e.g. a Window/Pane/Button) must error with "invalid element
+        // state", NOT receive destructive Ctrl+A/Delete keystrokes. Be CONSERVATIVE so real editors that
+        // under-report a writable ValuePattern (Notepad Edit/Document, RichEdit) still clear: editable if it
+        // has a writable ValuePattern OR an editable TextPattern OR is a text-input ControlType.
+        var hasEditableTextPattern = el.Patterns.Text.PatternOrDefault is not null;
+        var controlTypeName = SafeControlTypeName(el);
+        if (!OpLogic.IsEditable(hasWritableValuePattern: false, hasEditableTextPattern, controlTypeName))
+            throw new InvalidElementStateException(
+                $"element is not editable (controlType={controlTypeName ?? "unknown"}); cannot clear/set its value.");
         // Keyboard fallback: focus, clear existing content (Ctrl+A, Delete), then type.
         el.Focus();
         Keyboard.Press(VirtualKeyShort.CONTROL);

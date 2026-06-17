@@ -1,7 +1,7 @@
 // §6 Errors — exact W3C error JSON shapes & HTTP codes (https://www.w3.org/TR/webdriver2/#errors).
 // This file reads as a conformance checklist for the driver's end-to-end error mapping.
 import { expect } from 'chai';
-import { w3c, SessionPool } from '../lib/helpers.js';
+import { w3c, SessionPool, requireAppium } from '../lib/helpers.js';
 import type { W3CResult } from '../lib/w3c-client.js';
 
 /** Assert a result is a W3C error envelope: HTTP status + value.error string + value.message string. */
@@ -16,6 +16,7 @@ function assertW3CError(res: W3CResult, httpStatus: number, errorCode: string, l
 
 describe('§6 W3C error contract', function () {
   this.timeout(120_000);
+  before(requireAppium);
   const pool = new SessionPool();
   let sid: string;
   before(async () => { sid = await pool.open(); });

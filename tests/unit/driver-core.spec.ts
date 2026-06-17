@@ -149,6 +149,8 @@ const out = {};
     'no such element': 'NoSuchElementError',
     'invalid selector': 'InvalidSelectorError',
     'invalid argument': 'InvalidArgumentError',
+    'invalid element state': 'InvalidElementStateError',
+    'element not interactable': 'ElementNotInteractableError',
     'timeout': 'TimeoutError',
     'something weird': 'UnknownError', // default
   };
@@ -227,6 +229,7 @@ const out = {};
   const none = await runReal({});
   out.caps.none = {
     threw: none.result.threw,
+    name: none.result.name,
     msg: none.result.msg,
     isGuardError: none.result.threw && /must be provided/.test(none.result.msg),
   };
@@ -234,6 +237,7 @@ const out = {};
   const onlyPid = await runReal({ appProcessId: 4321 });
   out.caps.appProcessIdAlone = {
     threw: onlyPid.result.threw,
+    name: onlyPid.result.name,
     msg: onlyPid.result.msg,
     isGuardError: onlyPid.result.threw && /must be provided/.test(onlyPid.result.msg),
   };
@@ -353,6 +357,8 @@ describe('FlaUINativeDriver core (state machine, op mapping, timeouts, caps)', f
       ['no such element', 'NoSuchElementError'],
       ['invalid selector', 'InvalidSelectorError'],
       ['invalid argument', 'InvalidArgumentError'],
+      ['invalid element state', 'InvalidElementStateError'],
+      ['element not interactable', 'ElementNotInteractableError'],
       ['timeout', 'TimeoutError'],
       ['something weird', 'UnknownError'],
     ];
@@ -409,6 +415,10 @@ describe('FlaUINativeDriver core (state machine, op mapping, timeouts, caps)', f
     it('none of app/appTopLevelWindow/appName/processName → throws the "must be provided" error', () => {
       expect(out.caps.none.threw).to.equal(true);
       expect(out.caps.none.isGuardError, out.caps.none.msg).to.equal(true);
+    });
+    it('W3C §8.2: the capability guard throws SessionNotCreatedError (not a plain/unknown error)', () => {
+      expect(out.caps.none.name).to.equal('SessionNotCreatedError');
+      expect(out.caps.appProcessIdAlone.name).to.equal('SessionNotCreatedError');
     });
     it('appProcessId is no longer recognised: alone it does NOT satisfy the guard', () => {
       expect(out.caps.appProcessIdAlone.threw).to.equal(true);

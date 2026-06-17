@@ -43,6 +43,7 @@
 import { remote, type Browser } from 'webdriverio';
 import { expect } from 'chai';
 import axios from 'axios';
+import { requireAppium } from '../../lib/helpers.js';
 
 const APPIUM_URL = process.env.APPIUM_URL ?? 'http://127.0.0.1:4723';
 const TARGET_APP = process.env.TARGET_APP ?? 'Root';
@@ -96,6 +97,7 @@ async function probeStatusOnce(): Promise<number> {
 
 describe('FlaUINative — killProcessTree non-blocking (regression)', function () {
     this.timeout(120_000);
+    before(requireAppium);
 
     let driver: Browser;
 

@@ -4,10 +4,11 @@
 // path here; the NEGATIVE gate is covered by a unit-level assertion since the shared AppiumSrv has the
 // feature enabled server-wide and cannot be toggled per-session).
 import { expect } from 'chai';
-import { w3c, SessionPool, TARGET_APP } from '../lib/helpers.js';
+import { w3c, SessionPool, TARGET_APP, requireAppium } from '../lib/helpers.js';
 
 describe('Audit fixes', function () {
   this.timeout(120_000);
+  before(requireAppium);
   const pool = new SessionPool();
   let sid: string;
   before(async () => { sid = await pool.open(); });

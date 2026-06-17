@@ -1,9 +1,10 @@
 // §15 Actions — pointer click (focus proof), key typing (value proof), pause, releaseActions.
 import { expect } from 'chai';
-import { w3c, SessionPool, findEditable, bringToFront, W3C_ELEMENT_KEY } from '../lib/helpers.js';
+import { w3c, SessionPool, findEditable, bringToFront, W3C_ELEMENT_KEY, requireAppium } from '../lib/helpers.js';
 
 describe('§15 Actions', function () {
   this.timeout(120_000);
+  before(requireAppium);
   const pool = new SessionPool();
   let sid: string;
   let edId: string;

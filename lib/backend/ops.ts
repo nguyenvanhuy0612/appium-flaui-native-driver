@@ -49,6 +49,8 @@ export type W3CErrorType =
   | 'no such element'
   | 'invalid selector'
   | 'invalid argument'
+  | 'invalid element state'
+  | 'element not interactable'
   | 'unknown error'
   // The UIA scheduler is unrecoverable (≥5 poisoned workers). Although the sidecar ANSWERED, this is not a
   // live-session error: the driver routes it through the transport-failure path (markDead / recycle), P1-4.

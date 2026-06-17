@@ -15,3 +15,7 @@ temp/
 
 # stray archives (e.g. pulled app folders) — never publish
 *.zip
+
+# macOS
+.DS_Store
+**/.DS_Store

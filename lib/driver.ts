@@ -178,7 +178,9 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
       process.arch === 'arm64' ? 'win-arm64' : process.arch === 'ia32' ? 'win-x86' : 'win-x64';
     const exe = path.resolve(__dirname, `../../prebuilt/${arch}/FlaUiSidecar.exe`);
     if (!this.opts.app && !this.opts.appTopLevelWindow && !this.opts.appName && !this.opts.processName) {
-      throw new Error(
+      // W3C §8.2 New Session: a capability-processing failure must surface as `session not created`
+      // (a plain Error is mapped by base-driver to `unknown error`/500, which is non-conformant).
+      throw new errors.SessionNotCreatedError(
         `One of 'appium:app', 'appium:appTopLevelWindow', 'appium:appName' or 'appium:processName' must be provided`,
       );
     }
@@ -299,6 +301,10 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
             throw new errors.InvalidSelectorError(e.message);
           case 'invalid argument':
             throw new errors.InvalidArgumentError(e.message);
+          case 'invalid element state':
+            throw new errors.InvalidElementStateError(e.message);
+          case 'element not interactable':
+            throw new errors.ElementNotInteractableError(e.message);
           case 'timeout':
             throw new errors.TimeoutError(e.message);
           default:
@@ -467,6 +473,15 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     context?: string,
   ): Promise<W3CElement | W3CElement[]> {
     if (strategy === 'xpath') {
+      // W3C §12.3.4 "Find Element From Element": the KNOWN (context) element must be resolved/validated
+      // FIRST — a stale or invalid context is `stale element reference` / `no such element` — even when the
+      // selector is W3C-absolute (`//…`, `/…`), which the XPath engine otherwise resolves from the tree root
+      // and never touches the context id. We validate it up front with a cheap attributes op (which the op()
+      // mapper turns into the correct W3C error). Relative-path behaviour is unchanged: the engine still seeds
+      // from the (now-validated) context.
+      if (context) {
+        await this.op<Record<string, unknown>>(attributesOp(context, ['ControlType']));
+      }
       // From-element find (a context element id is present): by default a leading `//` is W3C-absolute
       // (resolved from the tree root, NOT the context element). With convertAbsoluteXPathToRelativeFrom-
       // Element enabled, rewrite a leading `//` → `.//` so the search is scoped to the context element's
@@ -595,8 +610,13 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     return (await this.getAttribute('ControlType', elementId)) ?? '';
   }
 
-  async getProperty(name: string, elementId: string): Promise<string | null> {
-    return this.getAttribute(name, elementId);
+  async getProperty(name: string, elementId: string): Promise<any> {
+    // W3C §12.4.3 "Get Element Property" returns the JSON-typed property value (boolean → true/false,
+    // number → number, object → object), NOT the string coercion that §12.4.2 getAttribute applies.
+    // Fetch the raw attribute value from the backend and return it as-is (null when absent/missing).
+    const res = await this.op<Record<string, unknown>>(attributesOp(elementId, [name]));
+    const v = res[name];
+    return v == null ? null : v;
   }
 
   async getElementRect(elementId: string): Promise<{ x: number; y: number; width: number; height: number }> {

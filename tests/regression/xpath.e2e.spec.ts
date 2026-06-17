@@ -23,6 +23,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { requireAppium } from '../lib/helpers.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const APPIUM_URL = process.env.APPIUM_URL ?? 'http://127.0.0.1:4723';
@@ -53,6 +54,7 @@ function record(c: CaseResult) { results.push(c); }
 
 describe('XPath 1.0 E2E — feature coverage', function () {
     this.timeout(120_000);
+    before(requireAppium);
 
     let driver: Browser;
     let source: string;
@@ -83,6 +85,10 @@ describe('XPath 1.0 E2E — feature coverage', function () {
     after(async function () {
         try { if (driver) await driver.deleteSession(); }
         finally {
+            // When the suite was skipped (no Appium server reachable), `before` never ran, so the
+            // output dir does not exist and there are no results to write — skip the artifact dump.
+            if (results.length === 0) return;
+            fs.mkdirSync(sourcesDir, { recursive: true });
             fs.writeFileSync(resultsPath, JSON.stringify({
                 vm: VM_LABEL, run_date: runDate, target_app: TARGET_APP,
                 total: results.length,

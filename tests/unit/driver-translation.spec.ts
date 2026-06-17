@@ -260,6 +260,94 @@ function recordingDriver() {
   }
 }
 
+// ── 9. getProperty returns the JSON-TYPED value (W3C §12.4.3), not the string coercion ─────────
+{
+  out.prop = {};
+  // boolean stays a boolean (getAttribute would give the string "true").
+  {
+    const d = mk();
+    let captured;
+    d.op = async (op) => { captured = op; return { IsEnabled: true }; };
+    out.prop.bool = await d.getProperty('IsEnabled', 'el-1');
+    out.prop.boolType = typeof out.prop.bool;
+    out.prop.opNames = captured.names; // ['IsEnabled']
+  }
+  // number stays a number.
+  {
+    const d = mk();
+    d.op = async () => ({ Count: 42 });
+    out.prop.num = await d.getProperty('Count', 'el-1');
+    out.prop.numType = typeof out.prop.num;
+  }
+  // object stays an object (NOT a JSON string).
+  {
+    const d = mk();
+    d.op = async () => ({ BoundingRectangle: { x: 1, y: 2, width: 3, height: 4 } });
+    out.prop.object = await d.getProperty('BoundingRectangle', 'el-1');
+    out.prop.objectType = typeof out.prop.object;
+  }
+  // string stays a string.
+  {
+    const d = mk();
+    d.op = async () => ({ Name: 'hello' });
+    out.prop.str = await d.getProperty('Name', 'el-1');
+  }
+  // null / missing → null.
+  {
+    const d = mk();
+    d.op = async () => ({ Name: null });
+    out.prop.nullValue = await d.getProperty('Name', 'el-1');
+    const d2 = mk();
+    d2.op = async () => ({});
+    out.prop.missing = await d2.getProperty('Name', 'el-1');
+  }
+}
+
+// ── 6c. Find-From-Element validates the context element FIRST (W3C §12.3.4) ────────────────────
+// A context id must be validated before the search runs, even for an absolute //… selector. We record
+// the ops in order; the first op for a from-element find MUST be an attributes op on the context.
+{
+  out.ctxValidate = {};
+  // absolute //… with context → attributes op on the context BEFORE any find.
+  {
+    const d = mk();
+    d.ops = [];
+    d.op = async (op) => { d.ops.push(op); return op.op === 'find' ? { elements: [] } : { ControlType: 'Window' }; };
+    await cap(() => d.findElOrEls('xpath', '//Button', true, 'ctx-9'));
+    out.ctxValidate.absolute = d.ops.map((o) => ({ op: o.op, id: o.id, startId: o.startId }));
+  }
+  // relative .//… with context → still validates the context first (behaviour unchanged otherwise).
+  {
+    const d = mk();
+    d.ops = [];
+    d.op = async (op) => { d.ops.push(op); return op.op === 'find' ? { elements: [] } : { ControlType: 'Window' }; };
+    await cap(() => d.findElOrEls('xpath', './/Button', true, 'ctx-9'));
+    out.ctxValidate.relative = d.ops.map((o) => ({ op: o.op, id: o.id, startId: o.startId }));
+  }
+  // NO context → no validation op; the engine starts straight away from root.
+  {
+    const d = mk();
+    d.ops = [];
+    d.op = async (op) => { d.ops.push(op); return { elements: [] }; };
+    await cap(() => d.findElOrEls('xpath', '//Button', true));
+    out.ctxValidate.noContext = d.ops.map((o) => ({ op: o.op, id: o.id, startId: o.startId }));
+  }
+}
+
+// ── 6c-stale. A stale/invalid context propagates the validation-op error (no find attempted) ───
+{
+  const { errors } = await import('@appium/base-driver');
+  const d = mk();
+  d.ops = [];
+  d.op = async (op) => {
+    d.ops.push(op);
+    if (op.op === 'attributes') throw new errors.StaleElementReferenceError('context gone');
+    return { elements: [] };
+  };
+  const res = await cap(() => d.findElOrEls('xpath', '//Button', true, 'ctx-stale'));
+  out.ctxStale = { res, opsKinds: d.ops.map((o) => o.op) };
+}
+
 process.stdout.write(JSON.stringify(out));
 `;
 
@@ -408,6 +496,56 @@ describe('FlaUINativeDriver translation (find mapping, performActions, getAttrib
     it('a scalar value → String()', () => {
       expect(out.attr.boolScalar).to.equal('true');
       expect(out.attr.numScalar).to.equal('42');
+    });
+  });
+
+  describe('9. getProperty returns the JSON-typed value (W3C §12.4.3)', () => {
+    it('requests the named attribute from the backend', () => {
+      expect(out.prop.opNames).to.deep.equal(['IsEnabled']);
+    });
+    it('a boolean stays a boolean (true), NOT the string "true"', () => {
+      expect(out.prop.bool).to.equal(true);
+      expect(out.prop.boolType).to.equal('boolean');
+    });
+    it('a number stays a number (42), NOT the string "42"', () => {
+      expect(out.prop.num).to.equal(42);
+      expect(out.prop.numType).to.equal('number');
+    });
+    it('an object stays an object, NOT a JSON string', () => {
+      expect(out.prop.object).to.deep.equal({ x: 1, y: 2, width: 3, height: 4 });
+      expect(out.prop.objectType).to.equal('object');
+    });
+    it('a string stays a string', () => {
+      expect(out.prop.str).to.equal('hello');
+    });
+    it('a null or missing value → null', () => {
+      expect(out.prop.nullValue).to.equal(null);
+      expect(out.prop.missing).to.equal(null);
+    });
+  });
+
+  describe('6c. Find-From-Element validates the context element first (W3C §12.3.4)', () => {
+    it('an absolute //… selector still validates the context with an attributes op BEFORE any find', () => {
+      const ops = out.ctxValidate.absolute;
+      expect(ops[0]).to.deep.include({ op: 'attributes', id: 'ctx-9' });
+      // a find only runs after the context is validated.
+      expect(ops.some((o: any) => o.op === 'find')).to.equal(true);
+      expect(ops.findIndex((o: any) => o.op === 'attributes')).to.be.lessThan(
+        ops.findIndex((o: any) => o.op === 'find'),
+      );
+    });
+    it('a relative .//… selector also validates the context first (otherwise unchanged)', () => {
+      const ops = out.ctxValidate.relative;
+      expect(ops[0]).to.deep.include({ op: 'attributes', id: 'ctx-9' });
+    });
+    it('with NO context element, no validation op is emitted', () => {
+      const ops = out.ctxValidate.noContext;
+      expect(ops.every((o: any) => o.op !== 'attributes')).to.equal(true);
+    });
+    it('a stale context propagates the validation error and never attempts a find', () => {
+      expect(out.ctxStale.res.threw).to.equal(true);
+      expect(out.ctxStale.res.name).to.equal('StaleElementReferenceError');
+      expect(out.ctxStale.opsKinds).to.deep.equal(['attributes']); // no find ran
     });
   });
 });

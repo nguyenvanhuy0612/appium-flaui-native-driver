@@ -1,9 +1,10 @@
 // §11 Contexts (Window) — title, handle(s), rect get/set roundtrip, maximize/minimize.
 import { expect } from 'chai';
-import { w3c, SessionPool } from '../lib/helpers.js';
+import { w3c, SessionPool, requireAppium } from '../lib/helpers.js';
 
 describe('§11 Window commands', function () {
   this.timeout(120_000);
+  before(requireAppium);
   const pool = new SessionPool();
   let sid: string;
   before(async () => { sid = await pool.open(); });

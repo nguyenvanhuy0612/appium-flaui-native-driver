@@ -1,9 +1,10 @@
 // §8 Sessions — create/delete, capability negotiation, attach flow, desktop session, shouldCloseApp.
 import { expect } from 'chai';
-import { w3c, SessionPool, TARGET_APP, findEditable, findWindow } from '../lib/helpers.js';
+import { w3c, SessionPool, TARGET_APP, findEditable, findWindow, requireAppium } from '../lib/helpers.js';
 
 describe('§8 Sessions', function () {
   this.timeout(120_000);
+  before(requireAppium);
   const pool = new SessionPool();
   afterEach(async () => { await pool.cleanup(); });
 

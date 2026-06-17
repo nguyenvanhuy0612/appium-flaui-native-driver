@@ -474,6 +474,7 @@ async Task<IResult> RunOp(Func<object?> work, TimeSpan? timeoutOverride = null)
     catch (SchedulerFatalException ex) { return Err("backend fatal", ex.Message); } // → TS transport-failure path (markDead / recycle), P1-4
     catch (StaleElementException ex) { return Err("stale element reference", ex.Message); }
     catch (ElementNotFoundException ex) { return Err("no such element", ex.Message); }
+    catch (InvalidElementStateException ex) { return Err("invalid element state", ex.Message); } // W3C §12.5.2 (TS maps to InvalidElementStateError)
     catch (InvalidArgumentException ex) { return Err("invalid argument", ex.Message); }
     catch (ArgumentException ex) { return Err("invalid selector", ex.Message); }
     catch (Exception ex) { return Err("unknown error", ex.Message); }

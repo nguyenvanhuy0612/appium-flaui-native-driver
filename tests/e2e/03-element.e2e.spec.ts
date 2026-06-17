@@ -1,10 +1,11 @@
 // §13/§14 Element State & Interaction — click/focus, setValue/clear/getText, attributes, properties,
 // name=tag, rect sanity, enabled/displayed/selected.
 import { expect } from 'chai';
-import { w3c, SessionPool, findEditable, bringToFront } from '../lib/helpers.js';
+import { w3c, SessionPool, findEditable, bringToFront, requireAppium } from '../lib/helpers.js';
 
 describe('§13/§14 Element State & Interaction', function () {
   this.timeout(120_000);
+  before(requireAppium);
   const pool = new SessionPool();
   let sid: string;
   let edId: string;

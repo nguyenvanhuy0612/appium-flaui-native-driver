@@ -2,10 +2,11 @@
 //   status -> newSession -> find -> source -> screenshot -> setValue/getText roundtrip -> deleteSession
 // W3C-first: raw protocol client, generic OS-independent selectors, self-cleaning.
 import { expect } from 'chai';
-import { w3c, SessionPool, findEditable, assertPng, parseXml } from '../lib/helpers.js';
+import { w3c, SessionPool, findEditable, assertPng, parseXml, requireAppium } from '../lib/helpers.js';
 
 describe('FlaUINative — smoke (critical path)', function () {
   this.timeout(60_000);
+  before(requireAppium);
   const pool = new SessionPool();
   afterEach(async () => { await pool.cleanup(); });
 

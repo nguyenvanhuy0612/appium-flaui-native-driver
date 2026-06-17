@@ -1,7 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- non-windows TFM on purpose: the scheduler logic is platform-agnostic and must test on macOS/CI -->
-    <TargetFramework>net10.0</TargetFramework>
+    <!-- non-windows TFM on purpose: the scheduler logic is platform-agnostic and must test on macOS/CI.
+         net9.0 (not net10.0) so the suite builds+runs on the broadly-installed SDK; the compiled logic
+         files use no net10-only APIs, and the production sidecar stays net10.0-windows. -->
+    <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>

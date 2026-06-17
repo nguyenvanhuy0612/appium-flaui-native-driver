@@ -1,10 +1,11 @@
 // §17/§19 Document Source & Screenshots — well-formed nested XML containing the found element's RuntimeId,
 // element-scoped source via `windows: getPageSource`, valid PNG screenshots (root + element).
 import { expect } from 'chai';
-import { w3c, SessionPool, findEditable, findWindow, assertPng, parseXml, W3C_ELEMENT_KEY } from '../lib/helpers.js';
+import { w3c, SessionPool, findEditable, findWindow, assertPng, parseXml, W3C_ELEMENT_KEY, requireAppium } from '../lib/helpers.js';
 
 describe('§17/§19 Source & Screenshots', function () {
   this.timeout(120_000);
+  before(requireAppium);
   const pool = new SessionPool();
   let sid: string;
   before(async () => { sid = await pool.open(); });
