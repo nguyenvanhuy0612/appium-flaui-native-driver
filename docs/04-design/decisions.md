@@ -301,3 +301,47 @@ out-of-scheduler escape hatch. Removing no-op caps avoids advertising knobs that
 **Consequences:** Clients using `appProcessId` or `powerShellCommandTimeout` must migrate
 (`processName`/`appName` for attach; per-call `timeout` for PowerShell). Docs (`capabilities.md`,
 `appium-api.md`, README) updated to match.
+
+---
+
+## ADR-017 — Visible cursor glide (`flaui:pointerMoveDurationMs`) — implemented, then dropped
+
+**Decision (2026-06-24):** Considered, implemented end-to-end, validated, and then **removed**. An opt-in
+session cap `flaui:pointerMoveDurationMs` would animate the OS cursor gliding to the target over N ms
+(instead of the instant `Mouse.MoveTo` jump) for click/hover/move/scroll, so a human watching could *see*
+the pointer travel and click. This is the real implementation of the `smoothPointerMove` no-op cap that
+ADR-016 dropped. It does **not** ship.
+
+**Why dropped:**
+1. **The only benefit (a visible cursor) does not manifest over RDP — the primary way this driver is
+   operated.** Over RDP the client renders its *own* cursor sprite locally; synthetic `SendInput` moves
+   only the *server-side* cursor, which the RDP client does not draw as a moving pointer. Verified on
+   client 37: input session and view session were the *same* Session 1, yet nothing was seen. The glide is
+   visible only on the machine's **physical console**. This is an RDP limitation, not fixable in the driver.
+   (It is also why the original "can we enable the cursor" request was never achievable over RDP — instant
+   clicks never showed a cursor either.)
+2. **Cost without payoff.** It adds latency to every click when enabled, and the duration **overshoots
+   ~40%** because each interpolation step's `Mouse.MoveTo` (a SendInput call) stacks on top of the
+   `Thread.Sleep` pacing. Measured on client 37 (desktop-icon click; no-cap click ≈ 200 ms):
+
+   | cap value | actual click time |
+   |---|---|
+   | none | ~200 ms |
+   | 1000 ms | ~1300–1500 ms |
+   | 12000 ms (clamped to 5000) | ~7000 ms |
+
+3. QA automation runs unattended — there is usually no human watching the screen at all.
+
+**The approach, preserved for a future revival** (e.g. a physical-console demo build):
+- Sidecar (`OpInterpreter.cs`): a `MoveCursor(System.Drawing.Point target, JsonElement args)` helper reads
+  `moveDurationMs` from the op args; when > 0 it interpolates from `Mouse.Position` to `target` via the
+  existing **`OpLogic.DragPath(fromX, fromY, toX, toY, durationMs)`** (the same path machinery the timed
+  `clickAndDrag` already uses), sleeping between steps; clamp to 5 s to stay under the per-op watchdog
+  (`operationTimeout`, default 30 s). Replace the five `Mouse.MoveTo(...)` call sites (click, hover, move,
+  scroll, clickAndDrag-start) with `MoveCursor(..., args)`.
+- TS (`lib/driver.ts`): a `flaui:pointerMoveDurationMs` constraint → instance field → `pointerMoveArg()`
+  helper spread into the `click`/`move` ops, plus auto-injection in `runWindowsInput` for the `windows:`
+  input commands — mirroring exactly how `typeDelay` / `typeDelayMs` is threaded today.
+
+**If revived, first fix:** subtract the per-step `MoveTo` cost from the sleep so the wall-clock matches the
+requested duration, and document the RDP-invisibility limitation prominently in the cap's description.

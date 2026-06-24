@@ -154,3 +154,6 @@ Only if the host is a clean dev box (writable `%TEMP%`, no aggressive AV) **and*
   Building on the client from your working tree ships exactly the code you're testing.
 - **Reversibility:** client `.NET` SDK is just `~/.dotnet`; the host driver install lives under
   `~/.appium` (+ the linked `~/flaui-driver`); the bundle-extract dir is `C:\dnettmp`.
+- **Skip the sidecar rebuild when only TS/`package.json` changed.** Step 1's `dotnet publish` is only needed
+  when the C# sidecar (`sidecar/**`) changed. For a TS-only or dependency-only change, reuse the existing
+  `prebuilt/<rid>/FlaUiSidecar.exe` and just `npm run build` + repack — much faster.
