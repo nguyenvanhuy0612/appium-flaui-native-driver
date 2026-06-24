@@ -12,6 +12,11 @@
     <!-- Tests (xUnit) and throwaway spikes are built by their own projects, not the main exe. -->
     <Compile Remove="tests/**" />
     <Compile Remove="spikes/**" />
+    <!-- Web SDK default-content globbing otherwise sweeps tests'/spikes'/fixtures' bin/obj JSON into the
+         publish output (e.g. prebuilt/<rid>/tests/obj/*.json). Keep those build artifacts out of the package. -->
+    <Content Remove="tests/**" />
+    <Content Remove="spikes/**" />
+    <Content Remove="fixtures/**" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FlaUI.UIA3" Version="4.0.0" />

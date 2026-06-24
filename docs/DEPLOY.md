@@ -44,17 +44,20 @@ Use `Write-Output`, never `Write-Host`, in remote scripts.
 ```bash
 npm run build                              # tsc -b → build/
 
-# sidecar → prebuilt/win-x64/FlaUiSidecar.exe  (x64 host; use win-arm64 for an arm64 host)
+# sidecar → prebuilt/win-x64/  (a FOLDER: FlaUiSidecar.exe + runtime DLLs; x64 host, use win-arm64 for arm64)
+# NON-single-file (ADR-019): no runtime self-extraction, which security products block. Clean the dir first
+# so a stale single-file exe can't linger.
+rm -rf prebuilt/win-x64
 "$HOME/.dotnet/dotnet" publish sidecar/FlaUiSidecar.csproj -c Release -r win-x64 --self-contained true \
-  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
-  -p:EnableCompressionInSingleFile=true -p:EnableWindowsTargeting=true -o prebuilt/win-x64
+  -p:PublishSingleFile=false -p:SatelliteResourceLanguages=en -p:EnableWindowsTargeting=true -o prebuilt/win-x64
 ```
+`SatelliteResourceLanguages=en` drops the unused WinForms/WPF localized satellite DLLs (13 culture folders).
 Build only the RID the host runs (`node -p process.arch` → `x64`→`win-x64`, `arm64`→`win-arm64`); the
 driver picks the matching exe at runtime.
 
 ## 2. Assemble a COMPLETE package (with production node_modules)
 
-`npm pack` only includes the `files` globs (`build/**`, `prebuilt/*/FlaUiSidecar.exe`) — not
+`npm pack` only includes the `files` globs (`build/**`, `prebuilt/*/**`) — not
 `node_modules`. Populate the runtime deps on the client (reliable) so the host never has to:
 ```bash
 npm pack                                                   # → appium-flaui-native-driver-<ver>.tgz
@@ -93,12 +96,9 @@ Scheduled Task with `LogonType Interactive` as the logged-in user. **Write the l
 file and run it with `-File`** — inline `-Command` over SSH mangles nested quotes.
 
 ```powershell
-# write the launcher (note DOTNET_BUNDLE_EXTRACT_BASE_DIR — see the %TEMP% note below)
+# write the launcher
 $launcher = @'
 $env:PATH += ';' + $env:APPDATA + '\npm'
-New-Item 'C:\dnettmp\bundle' -ItemType Directory -Force | Out-Null
-$env:TEMP = 'C:\dnettmp'; $env:TMP = 'C:\dnettmp'
-$env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = 'C:\dnettmp\bundle'
 $Host.UI.RawUI.WindowTitle = 'AppiumServer'
 Set-Location "$env:USERPROFILE\Desktop"
 & appium --address 0.0.0.0 -p 4723 --log-level info:debug --log "$env:USERPROFILE\Desktop\appium_server.log"
@@ -119,12 +119,13 @@ Unregister-ScheduledTask -TaskName 'AppiumVisible' -Confirm:$false   # task only
 `--address 0.0.0.0` makes it reachable from the client; ensure the firewall allows TCP 4723
 (`New-NetFirewallRule -DisplayName Appium4723 -Direction Inbound -Action Allow -Protocol TCP -LocalPort 4723`).
 
-> **Hosts with a locked-down `%TEMP%` (hardened / EDR boxes).** The sidecar is a self-contained
-> single-file .NET exe that self-extracts to `%TEMP%\.net` on launch. If Temp is write-restricted
-> (symptom: the driver reports **`sidecar exited early: <code>`** and no session starts), redirect the
-> extractor to a writable dir via **`DOTNET_BUNDLE_EXTRACT_BASE_DIR`** (done in the launcher above). The
-> same restriction breaks host-side `npm install` (0-byte/missing files) and `dotnet`/MSBuild temp
-> writes — which is exactly why we build on the client and ship a complete package.
+> **Sidecar self-extraction (historical).** The sidecar used to be a compressed single-file exe that
+> self-extracted its runtime to disk on launch; on hardened / security-product hosts that write was blocked
+> (symptom: **`sidecar exited early: <code>`**, no session, `.NET: I/O failure when writing decompressed
+> file`). It is now a **non-single-file folder** (ADR-019) that performs no runtime extraction — the DLLs
+> are copied to disk by the deploy above and only read at runtime — so `DOTNET_BUNDLE_EXTRACT_BASE_DIR` /
+> a writable `%TEMP%` are no longer needed. (A locked-down `%TEMP%` can still break host-side `npm
+> install`/`dotnet`, which is why we build on the client and ship a complete package.)
 
 ## 5. Verify + run tests from the client
 

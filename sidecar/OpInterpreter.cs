@@ -253,7 +253,12 @@ public sealed class OpInterpreter
                 var durationMs = args.TryGetProperty("durationMs", out var dm) ? dm.GetInt32() : 0;
                 var interClickDelayMs = args.TryGetProperty("interClickDelayMs", out var ic) ? ic.GetInt32() : 100;
                 var mods = ModifiersOf(args);
-                Mouse.MoveTo(pt);
+                // Teleport — NOT FlaUI Mouse.MoveTo. MoveTo animates the cursor along a straight line at
+                // ~0.5 px/ms, crossing whatever UI lies between the old position and the target. On menus
+                // that dismisses an open menu/submenu (its sibling items get hovered) before the click can
+                // land, and it is slow. Mouse.Position = SetCursorPos jumps straight to the target, exactly
+                // as FlaUI's own Mouse.Click(point) does. See ADR-018. (clickAndDrag keeps its path interp.)
+                Mouse.Position = pt;
                 PressModifiers(mods);
                 try
                 {
@@ -282,7 +287,7 @@ public sealed class OpInterpreter
                 PressModifiers(mods);
                 try
                 {
-                    Mouse.MoveTo(ResolvePoint(args));
+                    Mouse.Position = ResolvePoint(args);   // teleport, not MoveTo (ADR-018: avoid crossing UI)
                     // durationMs: dwell at the target so hover tooltips/menus settle (documented default 500).
                     var durationMs = args.TryGetProperty("durationMs", out var dm) ? dm.GetInt32() : 0;
                     if (durationMs > 0) Thread.Sleep(durationMs);
@@ -291,7 +296,7 @@ public sealed class OpInterpreter
                 return new { done = true };
             }
             case "move":   // raw W3C-Actions move: caller controls foreground; do NOT auto-focus here
-                Mouse.MoveTo(ResolvePoint(args));
+                Mouse.Position = ResolvePoint(args);   // teleport, not MoveTo (ADR-018: avoid crossing UI)
                 return new { done = true };
             case "down":
                 Mouse.Down(ButtonOf(args));
@@ -309,7 +314,7 @@ public sealed class OpInterpreter
                 // needs no bring.)
                 if (WantsBring(args, false)) BasicBringOnTopFromArgs(args);
                 if (args.TryGetProperty("elementId", out _) || args.TryGetProperty("x", out _))
-                    Mouse.MoveTo(ResolvePoint(args));
+                    Mouse.Position = ResolvePoint(args);   // teleport, not MoveTo (ADR-018: avoid crossing UI)
                 // Resolve {deltaX, deltaY, amount} → notches. `amount` multiplies given deltas, OR (when no
                 // delta is supplied) acts as a vertical scroll of that many notches — so a lone `amount` no
                 // longer silently no-ops (P2-7b). See OpLogic.ScrollDelta.
@@ -363,7 +368,7 @@ public sealed class OpInterpreter
                 var button = ButtonOf(args);
                 var durationMs = args.TryGetProperty("durationMs", out var dm) ? dm.GetInt32() : 0;
                 var mods = ModifiersOf(args);
-                Mouse.MoveTo(from);
+                Mouse.Position = from;   // teleport to the drag start, not MoveTo (ADR-018); the drag PATH below stays interpolated
                 PressModifiers(mods);
                 try
                 {

@@ -345,3 +345,58 @@ ADR-016 dropped. It does **not** ship.
 
 **If revived, first fix:** subtract the per-step `MoveTo` cost from the sleep so the wall-clock matches the
 requested duration, and document the RDP-invisibility limitation prominently in the cap's description.
+
+---
+
+## ADR-018 — Cursor positioning teleports (`Mouse.Position`), not FlaUI `Mouse.MoveTo`
+
+**Decision (2026-06-24):** Before a `click` / `hover` / `move` / `scroll` (and the approach to a
+`clickAndDrag` start point), the sidecar positions the OS cursor with **`Mouse.Position = pt`**
+(`SetCursorPos`, an instant jump) — **not** `FlaUI.Core.Input.Mouse.MoveTo`.
+
+**Why:** FlaUI's `Mouse.MoveTo` **animates** the cursor along a straight line at the default
+`MovePixelsPerMillisecond = 0.5` (≈500 px/s), stepping through every intermediate point. For menu
+navigation this is actively harmful: travelling from the just-clicked menu to a submenu item drags the
+cursor *across sibling menu items*, whose hover **dismisses the open submenu before the click lands** — the
+click then hits empty space or the wrong item (which can mis-fire destructive items like Close/Exit and
+leave the app with no window, surfacing later as `no top-level window found for process …`). It is also
+slow. `Mouse.Position` jumps straight to the target with no traversal — exactly what FlaUI's own
+`Mouse.Click(Point)` overload does internally (`Position = point; Click();`).
+
+**Consequences:** Clicks/hovers are instant and land reliably on menus and transient popups. The lost
+"natural" mouse animation is irrelevant for automation (and was a liability, not a feature). `clickAndDrag`
+**keeps** its intentional timed-path interpolation (`OpLogic.DragPath` + per-step sleeps) so DnD targets
+that sample pointer velocity still see gradual motion; only the *jump to the drag's start point* teleports.
+
+**Corrects ADR-017's premise:** ADR-017 (and the analysis that produced it) assumed `Mouse.MoveTo` was an
+instant teleport — it is not. That also retroactively justifies dropping the cursor-glide cap twice over:
+it *lengthened* an already-animated move, making the menu-crossing problem worse.
+
+---
+
+## ADR-019 — Ship the sidecar as a non-single-file folder (no runtime self-extraction)
+
+**Decision (2026-06-24):** Publish the C# sidecar as a **self-contained, NON-single-file folder**
+(`PublishSingleFile=false`, `--self-contained true`): `prebuilt/<rid>/` holds `FlaUiSidecar.exe` (a small
+apphost) beside its ~400 runtime/FlaUI DLLs. This **reverses the single-file aspect of ADR-009/ADR-013**
+(the self-contained decision itself stands; only the *single-file packaging* is dropped).
+
+**Why:** A compressed single-file exe **self-extracts its runtime to disk and loads it at process start**.
+A process that writes decompressed *executable* files and then loads them is a textbook behaviour pattern
+that endpoint-security products block. On the project's own primary test host (running **SecureAge**, the
+product under test) the write was actively blocked: the sidecar crashed during `/session` setup — before
+any app launch — with `.NET Runtime: I/O failure when writing decompressed file` and exit code
+`0x800080A0`. Confirmed it was an active write-block, not a corrupt leftover: clearing the extract dir and
+retrying still failed to write even the first file (0 files extracted). A non-single-file build performs
+**no runtime write** — the DLLs are placed on disk by the deploy's `tar`/`npm` copy (an ordinary file copy,
+not a self-modifying process) and are only *read/loaded* at runtime, sidestepping the block.
+
+**Consequences:**
+- `prebuilt/<rid>/` is now a ~400-file, ~200 MB folder per arch (uncompressed self-contained runtime)
+  instead of one ~87 MB exe. `package.json#files` ships `prebuilt/*/**` (was `prebuilt/*/FlaUiSidecar.exe`).
+- The `DOTNET_BUNDLE_EXTRACT_BASE_DIR` / `C:\dnettmp` extraction workaround (DEPLOY.md) is **no longer
+  needed** — there is nothing to extract.
+- Driver path resolution is unchanged: it still launches `prebuilt/<rid>/FlaUiSidecar.exe` (now with sibling
+  DLLs). `scripts/publish-sidecar.mjs` and DEPLOY.md updated.
+- The host needs no .NET runtime (still self-contained). Package/tarball is larger but the deploy already
+  ships a full folder, so transfer cost is marginal.
