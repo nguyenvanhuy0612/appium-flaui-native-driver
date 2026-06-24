@@ -400,3 +400,29 @@ not a self-modifying process) and are only *read/loaded* at runtime, sidesteppin
   DLLs). `scripts/publish-sidecar.mjs` and DEPLOY.md updated.
 - The host needs no .NET runtime (still self-contained). Package/tarball is larger but the deploy already
   ships a full folder, so transfer cost is marginal.
+
+---
+
+## ADR-020 — Element Send Keys: chord modifiers (held, applied to the next key, always released)
+
+**Decision (2026-06-24):** In the send-keys path (`/value` Element Send Keys → `setValue` append →
+`TypeText`), a modifier code point (Ctrl/Shift/Alt — e.g. `{CONTROL}` = U+E009) is **held and applied to the
+next key only, then released** (chord semantics). The chord key is emitted as a **virtual key**, and held
+modifiers are released in a **`finally`** so they can never leak.
+
+**Why:** Previously `TypeText` *tapped* a modifier (press+release on its own), so no combination worked —
+`{CONTROL}v` pressed Ctrl (a no-op) then typed `v`, i.e. only `v` appeared; every `{CONTROL}a` select-all,
+`{CONTROL}l`, etc. via `Appium Input`/`send_keys` was silently broken. Chord (not strict-W3C "hold until end
+of string") matches the client notation in use — `{CONTROL}a${port}` means *Ctrl+A then type the port*, and
+`{CONTROL}a{DELETE}` means *Ctrl+A then Delete*; holding Ctrl through the trailing keys would corrupt both.
+Literal text is injected via `KEYEVENTF_UNICODE`, which ignores modifier state, so a chord key must be sent
+as its `VirtualKeyShort` (letters/digits mapped; other chars fall back to a literal type).
+
+**Release guarantee (explicit requirement):** held modifiers are released in a `finally` covering the whole
+type loop — on a mid-type exception, a trailing modifier with no following key, or a chord that no-ops. A
+stuck Ctrl/Shift/Alt would corrupt every later command, so this is unconditional.
+
+**Consequences:** `{CONTROL}v`, `{CONTROL}a`, `{CONTROL}{HOME}`, `{CONTROL}{SHIFT}x`, `{CONTROL}a${text}` all
+work via send_keys. The W3C Actions path (explicit `keyDown`/`keyUp` → `keys` op Press/Release) is unchanged —
+it already gives the caller full control for cross-op held modifiers. The normal (no-modifier) text path is
+byte-for-byte unchanged.

@@ -502,22 +502,83 @@ public sealed class OpInterpreter
     {
         if (string.IsNullOrEmpty(text)) return;
         var segments = OpLogic.ParseSendKeys(text);
-        foreach (var seg in segments)
+        // CHORD modifiers (ADR-020): a modifier code point (Ctrl/Shift/Alt — e.g. {CONTROL} = U+E009) is HELD
+        // and applied to the NEXT key only, then released. So "{CONTROL}v" pastes, "{CONTROL}a${port}" does
+        // select-all then types the port. The chord key MUST be sent as a VIRTUAL KEY: FlaUI types literal
+        // text via KEYEVENTF_UNICODE, which ignores held modifiers (so Ctrl would never combine with 'v').
+        var held = new List<VirtualKeyShort>();
+        try
         {
-            if (seg.IsText)
+            foreach (var seg in segments)
             {
-                var run = seg.Text!;
-                if (delayMs <= 0) { Keyboard.Type(run); }
-                else foreach (var ch in run) { Keyboard.Type(ch.ToString()); Thread.Sleep(delayMs); }
-            }
-            else
-            {
-                // Special key: press+release the mapped virtual key.
-                Keyboard.Type(ToVirtualKey(seg.Key!.Value, seg.FKey));
-                if (delayMs > 0) Thread.Sleep(delayMs);
+                if (!seg.IsText && IsModifierKey(seg.Key!.Value))
+                {
+                    var mk = ToVirtualKey(seg.Key.Value, 0);
+                    Keyboard.Press(mk); held.Add(mk);          // hold for the next key
+                    continue;
+                }
+                if (seg.IsText)
+                {
+                    var run = seg.Text!;
+                    if (run.Length == 0) continue;
+                    if (held.Count > 0)
+                    {
+                        TypeChord(run[0]);                      // first char takes the held modifier(s)
+                        if (delayMs > 0) Thread.Sleep(delayMs);
+                        ReleaseHeld(held);                      // chord ends after that one key
+                        if (run.Length > 1) TypeRun(run.Substring(1), delayMs);
+                    }
+                    else { TypeRun(run, delayMs); }
+                }
+                else
+                {
+                    // Non-modifier special key — already a virtual key, so a held modifier combines fine.
+                    Keyboard.Type(ToVirtualKey(seg.Key!.Value, seg.FKey));
+                    if (delayMs > 0) Thread.Sleep(delayMs);
+                    if (held.Count > 0) ReleaseHeld(held);
+                }
             }
         }
+        finally
+        {
+            // GUARANTEE (per requirement): never leak a held modifier into the next op — release in ALL cases:
+            // an exception mid-type, a trailing modifier with no following key, or a chord that no-ops. A stuck
+            // Ctrl/Shift/Alt would corrupt every subsequent command.
+            ReleaseHeld(held);
+        }
     }
+
+    /// <summary>Type one char as part of a modifier chord, via its VIRTUAL KEY so a held Ctrl/Shift/Alt
+    /// actually combines (KEYEVENTF_UNICODE would ignore the modifier). Letters/digits map to their VK;
+    /// anything else falls back to a literal type (best-effort — won't combine, but such chords are rare).</summary>
+    private static void TypeChord(char c)
+    {
+        var vk = CharToVk(c);
+        if (vk is not null) Keyboard.Type(vk.Value); else Keyboard.Type(c.ToString());
+    }
+
+    private static void TypeRun(string run, int delayMs)
+    {
+        if (delayMs <= 0) { Keyboard.Type(run); }
+        else foreach (var ch in run) { Keyboard.Type(ch.ToString()); Thread.Sleep(delayMs); }
+    }
+
+    private static void ReleaseHeld(List<VirtualKeyShort> held)
+    {
+        for (var i = held.Count - 1; i >= 0; i--) Keyboard.Release(held[i]);
+        held.Clear();
+    }
+
+    private static bool IsModifierKey(OpLogic.CanonicalKey k) =>
+        k is OpLogic.CanonicalKey.Control or OpLogic.CanonicalKey.Shift or OpLogic.CanonicalKey.Alt;
+
+    private static VirtualKeyShort? CharToVk(char c) => c switch
+    {
+        >= 'a' and <= 'z' => (VirtualKeyShort)(c - 'a' + (int)VirtualKeyShort.KEY_A),
+        >= 'A' and <= 'Z' => (VirtualKeyShort)(c - 'A' + (int)VirtualKeyShort.KEY_A),
+        >= '0' and <= '9' => (VirtualKeyShort)(c - '0' + (int)VirtualKeyShort.KEY_0),
+        _ => null,
+    };
 
     /// <summary>Map a neutral <see cref="OpLogic.CanonicalKey"/> (from the FlaUI-free send-keys parser) to a
     /// FlaUI <see cref="VirtualKeyShort"/>. F-keys carry their number in <paramref name="fKey"/> (1..24).</summary>

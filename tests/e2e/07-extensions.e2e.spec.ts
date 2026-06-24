@@ -128,6 +128,29 @@ describe('§5/§6 Extension commands (windows:)', function () {
     expect([head[0], head[1], head[2], head[3]]).to.deep.equal([0x89, 0x50, 0x4e, 0x47]);
   });
 
+  // ── Chord modifiers in Element Send Keys (ADR-020) ───────────────────────────────────────────────
+  // '' = the W3C CONTROL code point. A modifier is HELD over the NEXT key (chord), then released.
+  // Regression guard for "only the bare key appears" (Ctrl tapped, not held) — Ctrl+V used to type just 'v'.
+  it('send_keys CONTROL+V pastes the clipboard (chord modifier held over v)', async () => {
+    const payload = 'chord-paste-' + Date.now();
+    const set = await w3c.execute(sid, 'windows: setClipboard', [{ b64: b64(payload), contentType: 'plaintext' }]);
+    expect(set.status, `setClipboard: ${set.raw?.slice(0, 200)}`).to.equal(200);
+    const sv = await w3c.setValue(sid, edId, 'v');      // Ctrl held over 'v' → paste into the empty editor
+    expect(sv.status, `paste: ${sv.raw?.slice(0, 200)}`).to.equal(200);
+    const txt = await w3c.getText(sid, edId);
+    expect(txt.status).to.equal(200);
+    expect(txt.value, 'pasted clipboard text (NOT a bare "v")').to.equal(payload);
+  });
+
+  it('send_keys CONTROL+A then literal replaces content (chord ends after the one key)', async () => {
+    const r0 = await w3c.setValue(sid, edId, 'OLD');          // existing content
+    expect(r0.status).to.equal(200);
+    const sv = await w3c.setValue(sid, edId, 'aNEW');    // Ctrl+A (select all), release, type NEW → replace
+    expect(sv.status, `ctrl+a then type: ${sv.raw?.slice(0, 200)}`).to.equal(200);
+    const txt = await w3c.getText(sid, edId);
+    expect(txt.value, 'Ctrl+A selected OLD, NEW replaced it').to.equal('NEW');
+  });
+
   // ── App lifecycle ───────────────────────────────────────────────────────────────────────────────
   it('windows: setProcessForeground brings the process foreground (or clean error)', async () => {
     const res = await w3c.execute(sid, 'windows: setProcessForeground', [{ process: 'notepad' }]);

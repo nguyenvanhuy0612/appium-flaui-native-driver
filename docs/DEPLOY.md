@@ -96,12 +96,15 @@ Scheduled Task with `LogonType Interactive` as the logged-in user. **Write the l
 file and run it with `-File`** — inline `-Command` over SSH mangles nested quotes.
 
 ```powershell
-# write the launcher
+# write the launcher.
+# Do NOT redirect (`*>`/`>`) the appium call — let it print live in the AppiumServer window so you can
+# watch the session on the interactive desktop. `--log` writes the same output to a file on the Desktop as
+# a copy (scp it back to inspect). `--log-level debug:debug` for full detail.
 $launcher = @'
 $env:PATH += ';' + $env:APPDATA + '\npm'
 $Host.UI.RawUI.WindowTitle = 'AppiumServer'
 Set-Location "$env:USERPROFILE\Desktop"
-& appium --address 0.0.0.0 -p 4723 --log-level info:debug --log "$env:USERPROFILE\Desktop\appium_server.log"
+& appium --address 0.0.0.0 -p 4723 --relaxed-security --log-level debug:debug --log "$env:USERPROFILE\Desktop\appium_server.log"
 '@
 [IO.File]::WriteAllText("$env:USERPROFILE\start-appium.ps1", $launcher)
 
