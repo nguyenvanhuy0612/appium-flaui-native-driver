@@ -800,6 +800,15 @@ class XPathExecutor {
    * (XPath §3.3); otherwise apply boolean().
    */
   private async predicateTruth(pred: ExprNode, ctx: EvalCtx): Promise<boolean> {
+    // A node-set predicate (`[Header]`, `[./Header]`, `[.//Header]`, `[a | b]`) is true iff the
+    // node-set is non-empty — NOT the string-value of its first node. Reducing an element node-set
+    // to a scalar yields '' in this text-node-free UIA world, so toBoolean would always be false and
+    // every "has a child element" predicate would wrongly reject. Route these through evalBoolean,
+    // which applies node-set existence semantics. (`@attr` existence still works: an attribute step's
+    // node-set is non-empty exactly when the attribute is present.)
+    if (isNodeSetExpr(pred)) {
+      return this.evalBoolean(pred, ctx);
+    }
     const value = await this.evalExpr(pred, ctx);
     if (typeof value === 'number') {
       return ctx.position === value;
