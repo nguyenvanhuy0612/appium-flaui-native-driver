@@ -426,13 +426,33 @@ async Task<IResult> RunPowerShell(JsonElement op)
     try
     {
         var script = op.GetProperty("script").GetString()!;
-        var psi = new System.Diagnostics.ProcessStartInfo("powershell.exe", "-NoProfile -NonInteractive -Command -")
+        // Run the script by reading the WHOLE of stdin and compiling it as one scriptblock. Do NOT use
+        // the bare `-Command -` form: when a multi-line script is piped to it, PowerShell parses stdin
+        // line-by-line and silently drops block bodies (for/if {...}), leaving partial execution with
+        // exit 0 and no error (a multi-line transfer-recombine script produced a 0-byte output file in
+        // the field). `[Console]::In.ReadToEnd()` consumes the entire stream first, then
+        // ScriptBlock::Create compiles it as a complete script — correct for multi-line AND for large
+        // single-line payloads (~46 KB chunk writes) that `-EncodedCommand` cannot carry (cmdline limit).
+        // Force UTF-8 on both ends (parent encodings + the child's Console In/Out encoding) so Unicode
+        // in the script and its output — CJK, emoji, Chinese inside `#` comments — round-trips intact.
+        var utf8 = new System.Text.UTF8Encoding(false);
+        var psi = new System.Diagnostics.ProcessStartInfo("powershell.exe")
         {
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
+            StandardInputEncoding = utf8,
+            StandardOutputEncoding = utf8,
+            StandardErrorEncoding = utf8,
         };
+        psi.ArgumentList.Add("-NoProfile");
+        psi.ArgumentList.Add("-NonInteractive");
+        psi.ArgumentList.Add("-Command");
+        psi.ArgumentList.Add(
+            "[Console]::InputEncoding=[Text.Encoding]::UTF8; " +
+            "[Console]::OutputEncoding=[Text.Encoding]::UTF8; " +
+            "& ([ScriptBlock]::Create([Console]::In.ReadToEnd()))");
         p = System.Diagnostics.Process.Start(psi)!;
         // Drain stdout/stderr CONCURRENTLY while writing stdin (deadlock-free).
         Task<string> outTask = p.StandardOutput.ReadToEndAsync(cts.Token);

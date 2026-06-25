@@ -75,6 +75,11 @@ scp /tmp/flaui-complete.tgz admin@<host>:flaui-complete.tgz   # relative path �
 Then, in ONE remote session (uninstall old → extract → link-install):
 ```powershell
 $env:PATH = "$env:ProgramFiles\nodejs;$env:APPDATA\npm;$env:PATH"
+taskkill /f /im node.exe /t 2>$null | Out-Null              # STOP Appium FIRST. A running server holds file
+                                                            # handles in ~/.appium/node_modules AND the linked
+                                                            # ~/flaui-driver, so the deletes below silently fail
+                                                            # (stale files linger / a 0-byte swap looks "done").
+                                                            # Same ordering as nova2's build_deploy_restart.sh.
 & appium driver uninstall flauinative 2>&1 | Out-Null        # clears the manifest (cheap)
 $dir = "$env:USERPROFILE\flaui-driver"
 Remove-Item $dir -Recurse -Force -EA SilentlyContinue
@@ -88,6 +93,13 @@ tar -xf "$env:USERPROFILE\flaui-complete.tgz" -C $dir        # ONE extraction (n
 - **Faster old-install removal:** `appium driver uninstall` updates the manifest; if you also want to
   scrub the cached package, `Remove-Item` `~/.appium/node_modules/appium-flaui-native-driver`, `.cache`,
   and `.package-lock.json` directly (filesystem delete beats a slow npm uninstall).
+- **`@`-folder junk / fully clean tree:** repeated `appium driver uninstall`/`install` cycles leave orphaned
+  `@scope/*` dependency folders in `~/.appium/node_modules`. For a truly clean tree, stop Appium (above) then
+  delete `~/.appium/node_modules` + `~/.appium/package-lock.json` wholesale and re-install from the manifest
+  (`appium driver install --source=local $dir` for this driver; reinstall any *other* drivers too, since a
+  full wipe removes them as well — e.g. `appium driver install --source=npm appium-novawindows2-driver@<ver>`).
+  A clean tree keeps deps nested per driver: top-level `node_modules` ends up with just `.cache`, the driver
+  dirs, and `.package-lock.json`.
 
 ## 4. Start Appium in an INTERACTIVE session (Session 1, not Session 0)
 
