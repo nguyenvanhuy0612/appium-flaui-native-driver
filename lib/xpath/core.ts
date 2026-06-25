@@ -498,7 +498,11 @@ class XPathExecutor {
         // Each branch can independently optimize its own last step.
         const lhs = await this.resolve(node.lhs, contexts, optimizeLast);
         const rhs = await this.resolve(node.rhs, contexts, optimizeLast);
-        return dedupe([...lhs, ...rhs]);
+        // A union's node-set is in document order (XPath 1.0). Sort here, not just at the end, so a
+        // positional predicate applied to a grouped union — `(//a | //b)[1]` — indexes document order.
+        // A bare-find backend can't walk to compute order keys; fall back to dedupe-only there.
+        const merged = dedupe([...lhs, ...rhs]);
+        return this.canWalk ? sortByDocumentOrder(merged, this.backend) : merged;
       }
       case ABSOLUTE_LOCATION_PATH:
         // An absolute path whose first step is `child::` is matched as `child-or-self::`, so e.g.
@@ -1345,6 +1349,66 @@ function dedupe(els: XElement[]): XElement[] {
   return out;
 }
 
+/** Axes whose result is NOT in document order (reverse + sibling + following/preceding). A path that
+ * uses one of these in an element-producing position needs its final node-set re-sorted into document
+ * order; child/descendant/descendant-or-self/self come back ordered from the backend already. */
+const DISORDERING_AXES = new Set<string>([
+  PARENT, ANCESTOR, ANCESTOR_OR_SELF, FOLLOWING_SIBLING, PRECEDING_SIBLING, FOLLOWING, PRECEDING,
+]);
+
+/** True when the OUTER path can yield nodes out of document order (so the final result must be
+ * sorted). We inspect element-producing positions only — axes inside predicates don't affect the
+ * order of the result set. Unions are excluded: they are sorted at production time (see resolve()). */
+function pathMayBeUnordered(node: ExprNode): boolean {
+  switch (node.type) {
+    case ABSOLUTE_LOCATION_PATH:
+    case RELATIVE_LOCATION_PATH:
+      return node.steps.some((s) => DISORDERING_AXES.has(s.axis));
+    case PATH:
+      return pathMayBeUnordered(node.filter) || node.steps.some((s) => DISORDERING_AXES.has(s.axis));
+    case FILTER:
+      return pathMayBeUnordered(node.primary);
+    default:
+      return false;
+  }
+}
+
+/** Lexicographic compare of two document-order keys; an ancestor's key is a prefix of its
+ * descendant's, so the shorter (ancestor) sorts first — exactly document order. */
+function compareDocKeys(a: number[], b: number[]): number {
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return a.length - b.length;
+}
+
+/** Document-order key for an element: the child-index path from the root down to it. Computed via the
+ * backend's walk() (ancestors + preceding-sibling counts) — only used when a result is known to be
+ * possibly unordered, so the extra round-trips are paid rarely. */
+async function documentOrderKey(id: string, backend: XPathBackend): Promise<number[]> {
+  const ancestors = await backend.walk(id, 'ancestors'); // nearest-first, up to the root
+  const chain = ancestors.map((e) => e.runtimeId).reverse(); // root … parent
+  chain.push(id); // root … self
+  const key: number[] = [];
+  for (let i = 1; i < chain.length; i++) {
+    // index among siblings = number of preceding siblings
+    const preceding = await backend.walk(chain[i], 'preceding-siblings');
+    key.push(preceding.length);
+  }
+  return key;
+}
+
+/** Sort an element list into document order (stable on ties, which dedupe should have removed). */
+async function sortByDocumentOrder(els: XElement[], backend: XPathBackend): Promise<XElement[]> {
+  if (els.length < 2) return els;
+  const keyed = await Promise.all(
+    els.map(async (el) => ({ el, key: await documentOrderKey(el.runtimeId, backend) })),
+  );
+  keyed.sort((a, b) => compareDocKeys(a.key, b.key));
+  return keyed.map((k) => k.el);
+}
+
 function requireArity(name: string, args: ExprNode[], n: number): void {
   if (args.length !== n) {
     throw new InvalidSelectorError(`Function ${name}() requires exactly ${n} argument(s).`);
@@ -1390,7 +1454,14 @@ export async function xpathToElementIds(
   // The context element only seeds relative paths.
   const executor = new XPathExecutor(resolved, AUTOMATION_ROOT_ID, !multiple, canWalk);
   const startNode = new XElement(contextId ?? AUTOMATION_ROOT_ID, resolved);
-  const els = await executor.resolveToElements(parsed, [startNode]);
+  let els = await executor.resolveToElements(parsed, [startNode]);
+  // A path through a reverse/sibling/following/preceding axis can leave the result out of document
+  // order (the axis is walked in proximity order). The W3C result of a location path is a node-set in
+  // document order, and findElement must return the document-first match — re-sort here. Forward-only
+  // paths and unions (sorted at production) skip this, so the common hot path pays nothing.
+  if (canWalk && pathMayBeUnordered(parsed)) {
+    els = await sortByDocumentOrder(els, resolved);
+  }
   const ids = els.map((e) => e.runtimeId);
   return multiple ? ids : ids.slice(0, 1);
 }

@@ -238,7 +238,8 @@ describe('xpath full engine (in-memory tree)', () => {
     });
     it('union dedupes', async () => {
       const r = await ids('//Edit | //Window');
-      expect(r).to.deep.equal(['editor', 'win']);
+      // a union's node-set is in document order: Window (win) contains Edit (editor)
+      expect(r).to.deep.equal(['win', 'editor']);
     });
     it('no match returns empty', async () => {
       expect(await ids('//Button[@Name="nope"]')).to.deep.equal([]);
@@ -265,17 +266,19 @@ describe('xpath full engine (in-memory tree)', () => {
     });
     it('ancestor::', async () => {
       expect(await ids('//ListItem[@Name="Alpha"]/ancestor::Window')).to.deep.equal(['win']);
-      // nearest-first ordering of ancestor::*
+      // a location path yields a node-set in document order (not the axis's nearest-first proximity)
       expect(await ids('//ListItem[@Name="Alpha"]/ancestor::*')).to.deep.equal([
-        'list',
-        'win',
         'root',
+        'win',
+        'list',
       ]);
     });
     it('ancestor-or-self::', async () => {
       const r = await ids('//List/ancestor-or-self::*');
       expect(r).to.include.members(['list', 'win']);
-      expect(r[0]).to.equal('list');
+      // document order: the outermost ancestor (root) is first, the context node (list) last
+      expect(r[0]).to.equal('root');
+      expect(r[r.length - 1]).to.equal('list');
     });
     it('following-sibling::', async () => {
       // editor's following siblings under window: statusbar, list

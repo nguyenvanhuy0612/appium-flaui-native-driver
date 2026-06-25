@@ -235,18 +235,23 @@ describe('xpath compound predicates (vs reference XPath 1.0)', () => {
   }
 });
 
-// Known deviation: reverse axes (ancestor-or-self, preceding, preceding-sibling) and unions are NOT
-// re-sorted into document order, contrary to the XPathBackend contract comment. Set membership is
-// correct, only the order is wrong — which can make findElement (first match) pick the wrong node.
-// These are pinned as skipped until the engine grows a document-order comparator.
-describe('xpath document order (KNOWN DEVIATION — pending fix)', () => {
+// Document order: reverse axes (ancestor, ancestor-or-self, preceding, preceding-sibling, following)
+// are walked in proximity order, and a union concatenates its branches — both can leave the result
+// out of document order. The engine re-sorts the final node-set (and unions at production time) so the
+// XPath 1.0 contract holds: a location path yields a document-ordered node-set, and findElement
+// returns the document-first match.
+describe('xpath document order', () => {
   const ORDER_CASES: Array<[string, string[]]> = [
-    ['//HeaderItem/ancestor-or-self::*', ['list1', 'hdr', 'h1', 'h2']],
+    ['//HeaderItem/ancestor-or-self::*', ['root', 'list1', 'hdr', 'h1', 'h2']],
+    ['//HeaderItem/ancestor::*', ['root', 'list1', 'hdr']],
     ['//Edit/preceding::Button', ['ok', 'cancel', 'deep']],
     ['//Edit | //ToolBar', ['tb', 'edit']],
+    ['//ToolBar | //Edit', ['tb', 'edit']],          // branch order must not affect result order
+    ['(//Edit | //ToolBar)[1]', ['tb']],             // positional over a union indexes document order
+    ['//ListItem/preceding-sibling::*', ['hdr', 'li_a']],
   ];
   for (const [expr, expected] of ORDER_CASES) {
-    it.skip(`${expr} should be document-ordered => ${JSON.stringify(expected)}`, async () => {
+    it(`${expr} => ${JSON.stringify(expected)}`, async () => {
       expect(await ids(expr)).to.deep.equal(expected);
     });
   }
