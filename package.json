@@ -1,6 +1,6 @@
 {
   "name": "appium-flaui-native-driver",
-  "version": "0.1.0-beta.26",
+  "version": "0.1.0-beta.27",
   "description": "Appium 3 Windows driver backed by a compiled C# FlaUI sidecar (UIA3/UIA2 + MSAA legacy).",
   "license": "Apache-2.0",
   "author": "Nguyen Van Huy",
@@ -55,7 +55,9 @@
     "appium": "^3.0.0"
   },
   "devDependencies": {
+    "@appium/base-driver": "^10.6.0",
     "@appium/types": "1.5.0",
+    "appium": "^3.0.0",
     "@types/node": "^22.0.0",
     "@xmldom/xmldom": "^0.9.10",
     "chai": "^5.1.2",
@@ -70,8 +72,6 @@
     "prebuilt/*/**"
   ],
   "dependencies": {
-    "@appium/base-driver": "^10.6.0",
-    "@appium/logger": "^2.0.9",
     "xpath-analyzer": "^3.0.1"
   },
   "peerDependenciesMeta": {

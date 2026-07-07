@@ -1,7 +1,7 @@
 // FlaUINativeDriver — the Appium 3 driver entry point.
 // AUTHORED ON macOS. Builds against @appium/base-driver@10.6.0 (Appium-3 line); requires
 // Windows + a published sidecar to run. See docs/NEXT-STEPS.md.
-import { BaseDriver, errors } from '@appium/base-driver';
+import { BaseDriver, errors } from 'appium/driver.js';
 import type {
   DriverCaps,
   W3CDriverCaps,
