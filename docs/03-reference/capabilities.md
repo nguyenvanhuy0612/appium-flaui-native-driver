@@ -51,6 +51,10 @@ If none resolves within `createSessionTimeout`, session creation fails.
 - **`app`** = the driver **owns** the app: it LAUNCHES a fresh process and **closes it on session end**
   (`shouldCloseApp` default `true`; `ms:forcequit` kills instead of closing). This holds even for a
   single-instance app where the launch handed off to a running instance — `app` still closes it.
+- **"Close" means close, never kill** (nova parity): the graceful teardown posts `WindowPattern.Close`
+  to the session's root window and returns — it does **not** wait for the process to exit and never
+  escalates to a process kill. A tray-resident app (e.g. a logged-in security agent) keeps running with
+  its in-memory state intact. The **only** path that terminates the process is `ms:forcequit: true`.
 - **`appTopLevelWindow` / `appName` / `processName`** = you **attached** to a running app: it is **left
   running** on session end (the driver never closes what it did not launch).
 
@@ -74,7 +78,7 @@ The standard appium-windows-driver caps the driver honours, plus a few advisory 
 |---|---|---|---|
 | `appium:newCommandTimeout` | number (s) | base-driver default | Idle-command reaping. Drives the sidecar idle bound (`flaui:idleTimeout`) — see [stability](../02-architecture/stability.md). |
 | `ms:waitForAppLaunch` | number (s) | — | Settle delay after launch; also extends the `/session` launch wait. |
-| `ms:forcequit` | boolean | `false` | Force-quit the app on teardown (advisory). |
+| `ms:forcequit` | boolean | `false` | Kill the app process on teardown instead of the graceful window close. The only path that terminates the process. |
 | `typeDelay` | number (ms) | — | Per-keystroke delay applied to `send_keys` and `windows: keys` typing (the sidecar paces characters by this many ms). Overridable at runtime via `windows: typeDelay`. |
 | `includeContextElementInSearch` | boolean | `true` | Searches include the context element itself (e.g. `//Window` matches the session root). |
 | `convertAbsoluteXPathToRelativeFromElement` | boolean | `false` | When `true`, a find-from-element whose XPath starts with `//` is rewritten to `.//`, so a leading `//` means "from this context element" rather than "from the document root". |

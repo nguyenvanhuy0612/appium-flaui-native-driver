@@ -174,35 +174,28 @@ app.MapPost("/session", async (HttpRequest req) =>
 
 app.MapDelete("/session", async () => await RunOp(() =>
 {
-    // ATTACHED sessions: we connected to a pre-existing app/window we did NOT start — never close or kill
-    // it (FlaUI's Close()/Kill() terminate the process regardless of attach-vs-launch). Just let the
-    // sidecar exit and release UIA refs. Only a session we actually LAUNCHED is closed per shouldCloseApp.
-    if (!attached && shouldCloseApp)
-    {
-        if (launchedApp is not null) CloseOrKillLaunchedApp();
-        else interp?.CloseRootWindow();
-    }
+    TeardownApp();
     return new { done = true };
 }));
 
-// Close the app we launched. ms:forcequit (or a failed graceful close) escalates to Kill (F10).
-void CloseOrKillLaunchedApp()
+// App lifecycle on teardown (nova parity). ATTACHED sessions (or shouldCloseApp=false): never touched.
+// LAUNCHED sessions: graceful teardown posts WindowPattern.Close to the ROOT WINDOW only — no wait for
+// process exit, NEVER an escalation to Kill. A tray-resident app (e.g. a logged-in security agent) keeps
+// running with its in-memory state intact, exactly like nova. Kill is reserved for ms:forcequit.
+// (FlaUI Application.Close() is unusable here: killIfCloseFails defaults to true, so a "graceful" close
+// guaranteed process death within ~5s — that killed SecureAge's login session.)
+void TeardownApp()
 {
-    if (launchedApp is null) return;
-    var app = launchedApp;
-    if (forceQuit) { try { app.Kill(); } catch { /* best effort */ } return; }
-    // Graceful close, but BOUNDED: Application.Close() waits for the app to exit, so a "Save changes?"
-    // confirm dialog or a wedged app would block teardown forever. A hang is NOT an exception, so the
-    // catch alone cannot escalate — run Close() on a worker and force Kill() if it doesn't return in time.
-    try
+    switch (OpLogic.DecideTeardownAppAction(attached, shouldCloseApp, forceQuit))
     {
-        var closing = System.Threading.Tasks.Task.Run(() => { try { app.Close(); } catch { /* best effort */ } });
-        if (!closing.Wait(TimeSpan.FromSeconds(5)))
-        {
-            try { app.Kill(); } catch { /* best effort */ }
-        }
+        case OpLogic.TeardownAppAction.Kill:
+            if (launchedApp is not null) { try { launchedApp.Kill(); } catch { /* best effort */ } }
+            else interp?.CloseRootWindow();
+            break;
+        case OpLogic.TeardownAppAction.CloseWindow:
+            interp?.CloseRootWindow();
+            break;
     }
-    catch { try { app.Kill(); } catch { /* best effort */ } }
 }
 
 // ── App-root resolution (the "outermost window" selection) ────────────────────────────────────
@@ -394,8 +387,9 @@ object HandleApp(JsonElement op)
             return interp!.OpenSession(root, true); // re-root + foreground the relaunched app (outermost window)
         }
         case "close":
-            if (launchedApp is not null) CloseOrKillLaunchedApp();
-            else interp?.CloseRootWindow();
+            // Mid-session closeApp = close the root window, never kill (nova's closeApp does the same
+            // and does not consult ms:forcequit).
+            interp?.CloseRootWindow();
             return new { done = true };
         case "activate":
         {
@@ -530,8 +524,10 @@ _ = Task.Run(async () =>
         // P0-2 — never self-exit while an op is in flight, no matter how stale lastActivity looks.
         if (!OpLogic.ShouldSelfExit(System.Threading.Volatile.Read(ref inFlight), idle, idleTimeout)) continue;
         // Best-effort close, but it must NEVER gate the self-exit (the orphan guard exists precisely for a
-        // wedged app). Bound the cleanup and self-exit regardless. (CloseOrKillLaunchedApp is itself bounded.)
-        try { if (!attached && shouldCloseApp && launchedApp is not null) System.Threading.Tasks.Task.Run(CloseOrKillLaunchedApp).Wait(TimeSpan.FromSeconds(6)); }
+        // wedged app). Bound the cleanup (WindowPattern.Close is a COM call that can block on a wedged app)
+        // and self-exit regardless. Same nova-parity semantics as DELETE /session — never kills without
+        // ms:forcequit, so a leaked session cannot reap a tray-resident app either.
+        try { System.Threading.Tasks.Task.Run(TeardownApp).Wait(TimeSpan.FromSeconds(6)); }
         catch { /* best effort */ }
         Console.Error.WriteLine(
             $"[sidecar] idle {idle.TotalSeconds:0}s exceeded {idleTimeout.TotalSeconds:0}s — self-exit (orphan guard)");

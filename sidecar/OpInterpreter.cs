@@ -35,7 +35,8 @@ public sealed class OpInterpreter
         return new { rootId = _registry.Register(root) };
     }
 
-    /// <summary>Best-effort close of the session root window (used for attached sessions).</summary>
+    /// <summary>Best-effort graceful close of the session root window (WindowPattern.Close — posts a
+    /// close request, no wait, never kills). The nova-parity teardown path for launched sessions.</summary>
     public void CloseRootWindow()
     {
         try { _root?.Patterns.Window.PatternOrDefault?.Close(); } catch { /* best effort */ }

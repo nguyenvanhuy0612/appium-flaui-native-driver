@@ -18,6 +18,20 @@ public static class OpLogic
     public enum CanonicalModifier { Ctrl, Shift, Alt, Win }
     public enum CanonicalButton { Left, Right, Middle }
 
+    /// <summary>What DELETE /session does to the app. Nova-parity semantics: graceful teardown only
+    /// CLOSES the root window (WindowPattern.Close, no wait) and NEVER kills the process — a
+    /// tray-resident app must survive with its in-memory state (e.g. a login session) intact.
+    /// Kill is reserved for ms:forcequit; attached sessions are never touched.</summary>
+    public enum TeardownAppAction { None, CloseWindow, Kill }
+
+    /// <summary>Decide the teardown action. Precedence: attached &gt; shouldCloseApp=false &gt; forcequit
+    /// (same as nova: forcequit only applies when the app would be closed at all).</summary>
+    public static TeardownAppAction DecideTeardownAppAction(bool attached, bool shouldCloseApp, bool forceQuit)
+    {
+        if (attached || !shouldCloseApp) return TeardownAppAction.None;
+        return forceQuit ? TeardownAppAction.Kill : TeardownAppAction.CloseWindow;
+    }
+
     /// <summary>Stable W3C error-type strings (the RunOp catch table maps exceptions to these).</summary>
     public static class W3C
     {
