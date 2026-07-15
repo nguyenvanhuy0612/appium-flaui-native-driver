@@ -100,8 +100,8 @@ The driver supports the following capabilities, grouped by prefix in order — *
 | `ms:waitForAppLaunch` | Seconds to wait after **launch** for the app's window to appear. | `0` | `3` |
 | `ms:forcequit` | Kill the app process (instead of a graceful close) on session deletion. | `false` | `true` |
 | `flaui:backend` | UI Automation API: `uia3` = modern COM UIA (full pattern set, recommended); `uia2` = managed wrapper — try only if a legacy control misbehaves under UIA3. | `uia3` | `uia2` |
-| `flaui:operationTimeout` | **Main per-op watchdog (ms)** — every UIA op must finish within this or it's aborted as `timeout` and the worker recycled (the core anti-hang bound). Raise for legitimately slow ops. | `30000` | `30000` |
-| `flaui:connectionTimeout` / `flaui:transactionTimeout` | Low-level UIA COM timeouts (ms), kept *below* the watchdog so a stuck COM call bails on its own first. Rarely tuned. | `min(20000, opTimeout−5000)` | `5000` |
+| `flaui:operationTimeout` | **Main per-op watchdog (ms)** — every UIA op must finish within this or it's aborted as `timeout` and the worker recycled (the core anti-hang bound). The single knob the whole nested timeout chain derives from; lower it if you want faster failure on a wedged app. | `300000` | `30000` |
+| `flaui:connectionTimeout` / `flaui:transactionTimeout` | Low-level UIA COM timeouts (ms), kept *below* the watchdog so a stuck COM call bails on its own first. Rarely tuned. | `max(1000, opTimeout−5000)` | `5000` |
 | `flaui:elementTableMax` | Size of the sidecar's RuntimeId→element cache (FIFO). Bump for huge trees / very long sessions. | (sidecar default) | `5000` |
 | `flaui:idleTimeout` | Sidecar self-exits after this idle time (orphan guard). Defaults to `newCommandTimeout + 120s`, so setting `newCommandTimeout` alone suffices; `newCommandTimeout: 0` disables it. | `newCommandTimeout + 120000` | `600000` |
 | `flaui:autoRecycle` | **Opt-in.** `true` = silently recycle the sidecar on a transport failure. `false` (default) = a dead sidecar **fails the session** (`invalid session id`) so you start a fresh one. | `false` | `true` |
@@ -114,7 +114,8 @@ The driver supports the following capabilities, grouped by prefix in order — *
 >   `shouldCloseApp: false`, and `ms:forcequit` kills instead of closing). `appTopLevelWindow` / `appName` /
 >   `processName` *attach* to a running app and **leave it running**.
 > - **PowerShell timeout is per-call**, not a capability: `execute('powershell', [{script\|command, timeout?}])`
->   (default `60000` ms). PowerShell runs out-of-scheduler, so `flaui:operationTimeout` does **not** bound it.
+>   (default `300000` ms; on expiry the process tree is killed). PowerShell runs out-of-scheduler, so
+>   `flaui:operationTimeout` does **not** bound it.
 > - **`flaui:` caps tune the sidecar** — most sessions never set any. The timeout ones form the nested
 >   anti-hang chain (**UIA < watchdog < RPC < hard-deadline**), see
 >   [`docs/02-architecture/stability.md`](docs/02-architecture/stability.md).
@@ -250,7 +251,7 @@ driver.execute_script('powershell', {'command': 'Get-Process Notepad'})
 # Execute a script string
 driver.execute_script('powershell', {'script': '$p = Get-Process Notepad; $p.Kill()'})
 
-# Set the timeout for this call (ms); defaults to 60000 if omitted
+# Set the timeout for this call (ms); defaults to 300000 if omitted
 driver.execute_script('powershell', {'command': 'Start-Sleep 5; "done"', 'timeout': 10000})
 ```
 

@@ -315,17 +315,20 @@ public static class OpLogic
         TimeSpan.FromMilliseconds(rawMs is double v && v > 0 ? v : defaultMs);
 
     // ── UIA nested-timeout default ──────────────────────────────────────────────────────────────────
-    /// <summary>UIA connection/transaction default: Max(1000ms, Min(20000ms, opTimeout-5000ms)). Sits just
-    /// below the op watchdog so a frozen provider's COM call self-aborts before the watchdog must poison the
-    /// worker. Invariant: result ≤ opTimeout-5s whenever opTimeout-5s ≥ 1000ms.</summary>
+    /// <summary>UIA connection/transaction default: Max(1000ms, opTimeout-5000ms). Sits just below the op
+    /// watchdog (anti-hang L1 nested under L2) so a frozen provider's COM call self-aborts before the
+    /// watchdog must poison the worker. Single-knob invariant: result = opTimeout-5s whenever that ≥ 1s
+    /// (floored at 1s below). There is deliberately NO upper cap: a hard 20s cap used to abort long-but-
+    /// legitimate UIA transactions (e.g. a find over a slow/churning tree with an animated progress bar)
+    /// with UIA_E_TIMEOUT long before the operationTimeout the user asked for.</summary>
     public static TimeSpan UiaDefault(TimeSpan opTimeout) =>
-        TimeSpan.FromMilliseconds(Math.Max(1000, Math.Min(20_000, opTimeout.TotalMilliseconds - 5_000)));
+        TimeSpan.FromMilliseconds(Math.Max(1000, opTimeout.TotalMilliseconds - 5_000));
 
     // ── /session watchdog budget (P0-1) ──────────────────────────────────────────────────────────────
     /// <summary>Watchdog timeout for the WHOLE /session setup, which legitimately runs far longer than a
     /// per-op (the attach poll can take <c>attachBudget</c>, and each resolve may wait <c>rootWait</c> for
-    /// the top-level window to surface). The default 30s per-op watchdog is far too short and would poison
-    /// the worker on a slow attach/launch. Worst case is the larger of the attach path
+    /// the top-level window to surface). A small per-op watchdog (operationTimeout is user-tunable) would
+    /// poison the worker on a slow attach/launch, so /session derives its OWN budget. Worst case is the larger of the attach path
     /// (<c>attachBudget + rootWait</c>) and the launch path (<c>2·rootWait</c> — initial resolve plus the
     /// single-instance hand-off retry), plus a grace margin. Pure so it is unit-testable cross-platform.</summary>
     public static TimeSpan SessionSetupTimeout(TimeSpan attachBudget, TimeSpan rootWait, TimeSpan? grace = null)
@@ -347,10 +350,16 @@ public static class OpLogic
     // ── error → W3C classifier ──────────────────────────────────────────────────────────────────────
     /// <summary>Pure exception-TYPE → W3C error-type mapping (the testable form of RunOp's catch table).
     /// Classifies by runtime type-name string so this stays FlaUI-free even though some of the custom
-    /// exception types live in FlaUI-importing files. Order mirrors RunOp: specific subtypes before the
-    /// ArgumentException base, with an unknown-error fallback.</summary>
+    /// exception types live in FlaUI-importing files. Order mirrors RunOp: the 0x80131505 HResult probe
+    /// first, then specific subtypes before the ArgumentException base, with an unknown-error fallback.</summary>
     public static string ClassifyError(Exception ex)
     {
+        // COR_E_TIMEOUT and UIA_E_TIMEOUT share HResult 0x80131505: a slow/churning provider makes UIA
+        // itself bail with a COMException carrying that code, which must surface as a W3C "timeout" (so the
+        // TS layer can retry/report honestly), NOT as "unknown error". This also covers TimeoutException
+        // uniformly (its default HResult is COR_E_TIMEOUT); the type-name case below stays as a belt for
+        // TimeoutException subtypes that overwrote HResult. FlaUI-free: only Exception.HResult is probed.
+        if (ex.HResult == unchecked((int)0x80131505)) return W3C.Timeout;
         for (var t = ex.GetType(); t is not null; t = t.BaseType)
         {
             switch (t.Name)

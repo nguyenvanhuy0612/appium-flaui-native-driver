@@ -50,17 +50,57 @@ public sealed class OpInterpreter
         var start = startId == "root" ? _root! : ResolveOrThrow(startId);
         var cond = BuildCondition(op.GetProperty("condition"));
 
-        if (multiple)
+        // ONE CacheRequest pass for the whole find: FindAll/FindFirst pre-fetch exactly the properties
+        // Basic() projects, so the projection does zero live COM round-trips afterwards. On a slow/churning
+        // tree (e.g. a dialog with an animated progress bar) the per-node live reads were what blew the UIA
+        // transaction budget (UIA_E_TIMEOUT 0x80131505) — the find path's cost IS the property reads. (This
+        // is the opposite of page-source, known-issues #1: there a property-only cache didn't help because
+        // page-source's cost is the per-node FindAllChildren navigation, not the reads.)
+        //
+        // Mechanism (verified against FlaUI 4.0 source): CacheRequest.Activate() pushes onto a [ThreadStatic]
+        // ambient stack; FindAll/FindFirst switch to FindAll/FindFirstBuildCache while it is active, and
+        // EVERY property read resolves cached-vs-live by that ambient flag AT READ TIME (GetPropertyValue →
+        // InternalGetPropertyValue(cached: CacheRequest.IsCachingActive)) — not by element origin. So
+        // Basic() itself is cache-served here simply because it runs INSIDE the using block, and stays fully
+        // live on its other call paths (Walk, selection, …) where no cache is active — no separate cached
+        // projection needed, no behavior change for other callers. All ops run on the scheduler's single STA
+        // worker, so the thread-scoped activation cannot leak across ops.
+        using (BasicCacheRequest().Activate())
         {
-            var els = start.FindAll(scope, cond);
-            return new { elements = els.Select(Basic).ToArray() };
-        }
+            if (multiple)
+            {
+                var els = start.FindAll(scope, cond);
+                return new { elements = els.Select(Basic).ToArray() };
+            }
 
-        var found = start.FindFirst(scope, cond) ?? throw new ElementNotFoundException();
-        return Basic(found);
+            var found = start.FindFirst(scope, cond) ?? throw new ElementNotFoundException();
+            return Basic(found);
+        }
         // Note: FlaUI 4.x has no ElementNotFoundException; FindFirst signals "not found" by returning
         // null. We raise a sidecar-local ElementNotFoundException (below) so Program.cs maps it to the
         // W3C "no such element" error envelope.
+    }
+
+    /// <summary>CacheRequest pre-caching exactly the properties <see cref="Basic"/> projects (RuntimeId,
+    /// Name, AutomationId, ClassName, ControlType) — RuntimeId also covers <c>ElementRegistry.Register</c>'s
+    /// key read. TreeScope.Element: only the found elements themselves, no relatives.
+    /// AutomationElementMode.Full is REQUIRED (FlaUI's property default is None!): the elements go into the
+    /// ElementRegistry for later live interaction, so they must keep a full native reference — None would
+    /// hand back data-only shells that cannot be clicked/patterned later.</summary>
+    private CacheRequest BasicCacheRequest()
+    {
+        var lib = _automation.PropertyLibrary.Element;
+        var cr = new CacheRequest
+        {
+            TreeScope = TreeScope.Element,
+            AutomationElementMode = AutomationElementMode.Full,
+        };
+        cr.Add(lib.RuntimeId);
+        cr.Add(lib.Name);
+        cr.Add(lib.AutomationId);
+        cr.Add(lib.ClassName);
+        cr.Add(lib.ControlType);
+        return cr;
     }
 
     /// <summary>Bulk attribute fetch (Phase 2). `names` is an array, or "all".</summary>

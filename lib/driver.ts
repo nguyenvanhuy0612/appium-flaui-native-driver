@@ -14,7 +14,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Sidecar } from './backend/sidecar.js';
 import { RpcError } from './backend/rpc-client.js';
-import { sessionRpcTimeoutMs } from './backend/timeouts.js';
+import {
+  DEFAULT_POWERSHELL_TIMEOUT_MS,
+  opRpcTimeoutMs,
+  RPC_GRACE_MS,
+  sessionRpcTimeoutMs,
+} from './backend/timeouts.js';
 import {
   findOp,
   propertyCondition,
@@ -53,7 +58,7 @@ const constraints = {
   // Sidecar / stability tuning (spec §7). All optional; sane defaults applied in the sidecar.
   'flaui:connectionTimeout': { isNumber: true }, // UIA ConnectionTimeout (ms)
   'flaui:transactionTimeout': { isNumber: true }, // UIA TransactionTimeout (ms)
-  'flaui:operationTimeout': { isNumber: true }, // per-op watchdog (ms)
+  'flaui:operationTimeout': { isNumber: true }, // per-op watchdog (ms; default 300000, one knob for L1<L2<L3<L4)
   'flaui:elementTableMax': { isNumber: true }, // element registry cap
   'flaui:idleTimeout': { isNumber: true }, // sidecar idle self-exit (ms; default 300000, 0 disables) — orphan guard (E)
   'flaui:autoRecycle': { isBoolean: true }, // OPT-IN silent sidecar recycle on death (default FALSE — C)
@@ -216,10 +221,9 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
       elementTableMax: this.opts['flaui:elementTableMax'],
       idleTimeout: idleTimeoutMs,
     };
-    // D: the RPC client default timeout sits just ABOVE the sidecar's per-op watchdog (operationTimeout),
-    // so the transport never aborts an op the backend is still legitimately working on.
-    const opTimeout = this.operationTimeoutMs ?? 30_000;
-    this.sidecar = new Sidecar({ command: exe, args: [], rpcTimeoutMs: opTimeout + 5_000 });
+    // D: the RPC client default timeout sits just ABOVE the sidecar's per-op watchdog (operationTimeout,
+    // default 300000 ms), so the transport never aborts an op the backend is still legitimately working on.
+    this.sidecar = new Sidecar({ command: exe, args: [], rpcTimeoutMs: opRpcTimeoutMs(this.operationTimeoutMs) });
     try {
       await this.sidecar.start();
       // /session can legitimately take as long as the attach poll (createSessionTimeout, default 60s) PLUS
@@ -373,14 +377,15 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
   /**
    * Per-op RPC timeout (D, nested timeouts). UIA ops get `operationTimeout + grace` so the transport sits
    * just above the sidecar's per-op watchdog. PowerShell runs out-of-scheduler and may legitimately run
-   * longer than the watchdog, so it gets its own (per-call / 60s default) timeout + grace.
+   * longer than the watchdog, so it gets its own (per-call / DEFAULT_POWERSHELL_TIMEOUT_MS default)
+   * timeout + grace.
    */
   private rpcTimeoutFor(o: BackendOp): number {
-    const grace = 5_000;
     if (o.op === 'powershell') {
-      return ((o as { timeoutMs?: number }).timeoutMs ?? 60_000) + grace;
+      return ((o as { timeoutMs?: number }).timeoutMs ?? DEFAULT_POWERSHELL_TIMEOUT_MS) + RPC_GRACE_MS;
     }
-    return (this.operationTimeoutMs ?? 30_000) + grace;
+    // L3 = (flaui:operationTimeout ?? 300000) + grace; the RpcClient adds the L4 backstop (+5s) on top.
+    return opRpcTimeoutMs(this.operationTimeoutMs);
   }
 
   /** Recycle the sidecar process and re-open the backend session (deduped). Returns true on success. */
@@ -404,10 +409,15 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
     } catch {
       /* the old process is presumed dead; ignore */
     }
-    const next = new Sidecar({ command: this.sidecarExe!, args: [] });
+    // Same RPC-client timeout derivation as createSession, so a recycled sidecar keeps the tuned L3.
+    const next = new Sidecar({
+      command: this.sidecarExe!,
+      args: [],
+      rpcTimeoutMs: opRpcTimeoutMs(this.operationTimeoutMs),
+    });
     await next.start();
-    // Same /session budget as createSession — a recycle re-runs the full attach/launch, so the 30s default
-    // would reproduce the P0-1 watchdog bug on a slow re-attach.
+    // Same /session budget as createSession — a recycle re-runs the full attach/launch, so the per-op
+    // timeout is the wrong budget and would reproduce the P0-1 watchdog bug on a slow re-attach.
     await next.client.session(this.sessionBody ?? {}, this.sessionSetupRpcTimeout());
     this.sidecar = next;
   }
@@ -782,7 +792,7 @@ export class FlaUINativeDriver extends BaseDriver<Constraints> {
       const res = await this.op<{ stdout: string; stderr: string; exitCode: number }>({
         op: 'powershell',
         script: a.script ?? a.command ?? '',
-        // Per-call timeout wins, else the sidecar's 60s default. PowerShell runs out-of-scheduler so
+        // Per-call timeout wins, else the sidecar's 300s default. PowerShell runs out-of-scheduler so
         // flaui:operationTimeout does NOT bound it — this per-call timeout is the only cap.
         timeoutMs: a.timeoutMs ?? a.timeout,
       });

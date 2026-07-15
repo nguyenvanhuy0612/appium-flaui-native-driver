@@ -1,4 +1,5 @@
 import type { BackendOp, BackendResult } from './ops.js';
+import { opRpcTimeoutMs, rpcHardBackstopMs } from './timeouts.js';
 
 export class RpcError extends Error {
   constructor(public type: string, message: string) {
@@ -9,7 +10,9 @@ export class RpcError extends Error {
 
 /** Thin HTTP/JSON client to the sidecar. Unwraps BackendResult, throwing RpcError on { ok:false }. */
 export class RpcClient {
-  constructor(private baseUrl: string, private timeoutMs = 30_000) {}
+  // Instance default = L3 for the DEFAULT operationTimeout (300s + grace). Callers on the op path always
+  // pass an explicit per-call timeout (driver.rpcTimeoutFor); this fallback covers the rest (deleteSession).
+  constructor(private baseUrl: string, private timeoutMs = opRpcTimeoutMs()) {}
 
   async health(timeoutMs = 2_000): Promise<boolean> {
     try {
@@ -53,10 +56,11 @@ export class RpcClient {
     // so the caller treats it as a TRANSPORT failure and fails the session (a clean RpcError would be
     // taken as a live backend response). Grace of 5s lets the sidecar's own op-watchdog answer first.
     let hardTimer: ReturnType<typeof setTimeout> | undefined;
+    const hardDeadlineMs = rpcHardBackstopMs(callTimeout);
     const hardDeadline = new Promise<never>((_, reject) => {
       hardTimer = setTimeout(
-        () => reject(new Error(`sidecar RPC exceeded ${callTimeout + 5000}ms (${method} ${path}) — transport hang`)),
-        callTimeout + 5000,
+        () => reject(new Error(`sidecar RPC exceeded ${hardDeadlineMs}ms (${method} ${path}) — transport hang`)),
+        hardDeadlineMs,
       );
     });
     const work = (async () => {

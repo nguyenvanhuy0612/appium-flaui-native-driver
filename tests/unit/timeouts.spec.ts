@@ -1,5 +1,44 @@
 import { expect } from 'chai';
-import { sessionRpcTimeoutMs } from '../../lib/backend/timeouts';
+import {
+  DEFAULT_OPERATION_TIMEOUT_MS,
+  DEFAULT_POWERSHELL_TIMEOUT_MS,
+  opRpcTimeoutMs,
+  rpcHardBackstopMs,
+  sessionRpcTimeoutMs,
+} from '../../lib/backend/timeouts';
+
+describe('per-op timeout derivation (L1<L2<L3<L4, single knob)', () => {
+  it('default operationTimeout is 300000 ms (MUST match the sidecar default)', () => {
+    expect(DEFAULT_OPERATION_TIMEOUT_MS).to.equal(300_000);
+  });
+
+  it('default powershell per-call timeout is 300000 ms (MUST match RunPowerShell in Program.cs)', () => {
+    expect(DEFAULT_POWERSHELL_TIMEOUT_MS).to.equal(300_000);
+  });
+
+  it('defaults: L3 (RPC abort) = 300000 + 5000 = 305000', () => {
+    expect(opRpcTimeoutMs(undefined)).to.equal(305_000);
+    expect(opRpcTimeoutMs()).to.equal(305_000);
+  });
+
+  it('defaults: L4 (hard backstop) = L3 + 5000 = 310000', () => {
+    expect(rpcHardBackstopMs(opRpcTimeoutMs())).to.equal(310_000);
+  });
+
+  it('flaui:operationTimeout: 20000 overrides the knob → L3 25000, L4 30000', () => {
+    const l3 = opRpcTimeoutMs(20_000);
+    expect(l3).to.equal(25_000);
+    expect(rpcHardBackstopMs(l3)).to.equal(30_000);
+  });
+
+  it('ordering invariant: watchdog < L3 < L4 for any cap', () => {
+    for (const cap of [1_000, 20_000, 300_000, 600_000]) {
+      const l3 = opRpcTimeoutMs(cap);
+      expect(cap).to.be.lessThan(l3);
+      expect(l3).to.be.lessThan(rpcHardBackstopMs(l3));
+    }
+  });
+});
 
 describe('sessionRpcTimeoutMs (P0-1 /session RPC budget)', () => {
   it('defaults: 10s root wait + 60s attach budget + 30s grace', () => {

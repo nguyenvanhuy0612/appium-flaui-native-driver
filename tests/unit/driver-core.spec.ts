@@ -174,15 +174,15 @@ const out = {};
   // powershell: op.timeoutMs wins
   let d = mk();
   out.rpcTimeout.psOpTimeout = d.rpcTimeoutFor({ op: 'powershell', script: 'x', timeoutMs: 1000 }); // 6000
-  // powershell: default 60000 (no session-level cap any more)
+  // powershell: default DEFAULT_POWERSHELL_TIMEOUT_MS = 300000 (no session-level cap any more)
   d = mk();
-  out.rpcTimeout.psDefault = d.rpcTimeoutFor({ op: 'powershell', script: 'x' }); // 65000
-  // non-PS: operationTimeoutMs
-  d = mk(); d.operationTimeoutMs = 12000;
-  out.rpcTimeout.nonPsOpTimeout = d.rpcTimeoutFor({ op: 'source', startId: 'root' }); // 17000
-  // non-PS: default 30000
+  out.rpcTimeout.psDefault = d.rpcTimeoutFor({ op: 'powershell', script: 'x' }); // 305000
+  // non-PS: operationTimeoutMs (the flaui:operationTimeout cap) overrides the default
+  d = mk(); d.operationTimeoutMs = 20000;
+  out.rpcTimeout.nonPsOpTimeout = d.rpcTimeoutFor({ op: 'source', startId: 'root' }); // 25000 (L4 = 30000)
+  // non-PS: default 300000 (single knob; matches the sidecar's default operationTimeout)
   d = mk();
-  out.rpcTimeout.nonPsDefault = d.rpcTimeoutFor({ op: 'source', startId: 'root' }); // 35000
+  out.rpcTimeout.nonPsDefault = d.rpcTimeoutFor({ op: 'source', startId: 'root' }); // 305000 (L4 = 310000)
 }
 
 // ── 4 + 5. Real createSession: capability guard AND idle-timeout derivation ────────────────────
@@ -379,14 +379,14 @@ describe('FlaUINativeDriver core (state machine, op mapping, timeouts, caps)', f
     it('powershell op.timeoutMs wins: timeoutMs + 5000', () => {
       expect(out.rpcTimeout.psOpTimeout).to.equal(6000);
     });
-    it('powershell default 60000 + 5000 (no session-level cap)', () => {
-      expect(out.rpcTimeout.psDefault).to.equal(65000);
+    it('powershell default 300000 + 5000 (no session-level cap)', () => {
+      expect(out.rpcTimeout.psDefault).to.equal(305000);
     });
-    it('non-PS uses operationTimeoutMs + 5000', () => {
-      expect(out.rpcTimeout.nonPsOpTimeout).to.equal(17000);
+    it('non-PS uses operationTimeoutMs + 5000 (flaui:operationTimeout 20000 → L3 25000)', () => {
+      expect(out.rpcTimeout.nonPsOpTimeout).to.equal(25000);
     });
-    it('non-PS default 30000 + 5000', () => {
-      expect(out.rpcTimeout.nonPsDefault).to.equal(35000);
+    it('non-PS default 300000 + 5000 (L3 305000)', () => {
+      expect(out.rpcTimeout.nonPsDefault).to.equal(305000);
     });
   });
 

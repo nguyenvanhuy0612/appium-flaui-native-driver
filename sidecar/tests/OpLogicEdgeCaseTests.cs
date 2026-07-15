@@ -428,12 +428,13 @@ public class OpLogicEdgeCaseTests
 
     // ── UiaDefault exact boundaries ────────────────────────────────────────────────────────────────
     [Fact]
-    public void UiaDefault_ExactlyAtCapBoundary()
+    public void UiaDefault_NoUpperCap_TracksOpMinus5sAboveOldCap()
     {
-        // op = 25s → op-5s = 20000 = the cap exactly.
+        // The old 20s hard cap is GONE (it aborted long-but-legitimate UIA transactions with
+        // UIA_E_TIMEOUT); above the floor the result is always op-5s exactly.
         Assert.Equal(20_000, UiaDefault(TimeSpan.FromSeconds(25)).TotalMilliseconds);
-        // op = 25.001s → still capped at 20000.
-        Assert.Equal(20_000, UiaDefault(TimeSpan.FromMilliseconds(25_001)).TotalMilliseconds);
+        Assert.Equal(20_001, UiaDefault(TimeSpan.FromMilliseconds(25_001)).TotalMilliseconds);
+        Assert.Equal(295_000, UiaDefault(TimeSpan.FromSeconds(300)).TotalMilliseconds);
     }
 
     [Fact]

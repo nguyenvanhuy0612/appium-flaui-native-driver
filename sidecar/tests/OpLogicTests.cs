@@ -125,39 +125,54 @@ public class OpLogicTests
     {
         // op-5s would be 1000ms exactly here; below that it's clamped to the 1000ms floor.
         Assert.Equal(1000, UiaDefault(TimeSpan.FromSeconds(6)).TotalMilliseconds);
+        Assert.Equal(1000, UiaDefault(TimeSpan.FromSeconds(5)).TotalMilliseconds); // op-5s = 0 → floor
         Assert.Equal(1000, UiaDefault(TimeSpan.FromSeconds(3)).TotalMilliseconds); // op-5s negative → floor
     }
 
-    [Fact]
-    public void UiaDefault_MidRange_IsOpMinus5s()
-    {
-        Assert.Equal(10_000, UiaDefault(TimeSpan.FromSeconds(15)).TotalMilliseconds); // 15-5 = 10
-    }
-
-    [Fact]
-    public void UiaDefault_LargeOpTimeout_CapsAt20000ms()
-    {
-        Assert.Equal(20_000, UiaDefault(TimeSpan.FromSeconds(30)).TotalMilliseconds); // min(20000, 25000)
-        Assert.Equal(20_000, UiaDefault(TimeSpan.FromMinutes(5)).TotalMilliseconds);
-    }
+    [Theory]
+    [InlineData(15, 10_000)]
+    [InlineData(30, 25_000)]    // was capped to 20s — the cap is gone (single-knob invariant)
+    [InlineData(60, 55_000)]    // > old 20s cap: must track op-5s now
+    [InlineData(300, 295_000)]  // the 300s default → 295s UIA budget
+    public void UiaDefault_IsOpMinus5s_NoUpperCap(int opSeconds, double expectedMs) =>
+        Assert.Equal(expectedMs, UiaDefault(TimeSpan.FromSeconds(opSeconds)).TotalMilliseconds);
 
     [Theory]
     [InlineData(6)]
     [InlineData(15)]
     [InlineData(30)]
     [InlineData(300)]
-    public void UiaDefault_NeverExceeds_OpMinus5s_WhenThatIsAtLeast1s(int opSeconds)
+    public void UiaDefault_Equals_OpMinus5s_WhenThatIsAtLeast1s(int opSeconds)
     {
+        // Single-knob invariant: L1 = opTimeout-5s exactly (no cap), staying nested below the L2 watchdog.
         var op = TimeSpan.FromSeconds(opSeconds);
-        var d = UiaDefault(op);
-        Assert.True(d.TotalMilliseconds <= op.TotalMilliseconds - 5_000 + 0.001,
-            $"uiaDefault {d.TotalMilliseconds}ms must be ≤ op-5s ({op.TotalMilliseconds - 5_000}ms)");
+        Assert.Equal(op.TotalMilliseconds - 5_000, UiaDefault(op).TotalMilliseconds);
     }
 
     // ── error classifier ────────────────────────────────────────────────────────────────────────────
     [Fact]
     public void ClassifyError_TimeoutException() =>
         Assert.Equal(W3C.Timeout, ClassifyError(new TimeoutException()));
+
+    [Fact]
+    public void ClassifyError_ComExceptionWithUiaTimeoutHResult_IsTimeout() =>
+        // UIA_E_TIMEOUT surfaces as a COMException with HResult 0x80131505 (shared with COR_E_TIMEOUT):
+        // a slow/churning provider blowing the UIA transaction budget must classify as "timeout", not
+        // "unknown error" — the field bug that motivated the HResult probe.
+        Assert.Equal(W3C.Timeout, ClassifyError(
+            new System.Runtime.InteropServices.COMException("Operation timed out", unchecked((int)0x80131505))));
+
+    [Fact]
+    public void ClassifyError_AnyExceptionWithTimeoutHResult_IsTimeout() =>
+        // The probe is type-agnostic: ANY exception carrying 0x80131505 classifies as timeout.
+        Assert.Equal(W3C.Timeout, ClassifyError(
+            new Exception("wrapped timeout") { HResult = unchecked((int)0x80131505) }));
+
+    [Fact]
+    public void ClassifyError_ComExceptionWithOtherHResult_IsUnknownError() =>
+        // A non-timeout COM failure (e.g. E_FAIL) must NOT be swallowed into "timeout".
+        Assert.Equal(W3C.UnknownError, ClassifyError(
+            new System.Runtime.InteropServices.COMException("boom", unchecked((int)0x80004005))));
 
     [Fact]
     public void ClassifyError_SchedulerFatal_IsBackendFatal() =>
@@ -308,7 +323,7 @@ public class OpLogicTests
     public void SessionSetupTimeout_ExceedsAttachBudgetPlusRootWait()
     {
         // Defaults: attach 60s + root 10s. The watchdog MUST clear attach+root so a slow attach is not
-        // chopped by the 30s per-op default.
+        // chopped by a small per-op watchdog (operationTimeout is user-tunable).
         var attach = TimeSpan.FromSeconds(60);
         var root = TimeSpan.FromSeconds(10);
         var deadline = SessionSetupTimeout(attach, root);

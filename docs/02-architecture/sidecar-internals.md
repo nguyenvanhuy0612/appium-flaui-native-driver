@@ -34,9 +34,10 @@ UIA/COM strongly prefers a single-threaded apartment, and a frozen provider can 
 call indefinitely. The sidecar therefore funnels **every** UIA-touching op through one
 `UiaScheduler` worker thread (STA on Windows), serialized so exactly one op runs at a time
 (`SemaphoreSlim(1,1)`). Kestrel may dispatch overlapping HTTP requests, but they queue behind
-the gate. Each op runs under a wall-clock watchdog (`flaui:operationTimeout`, default 30s);
-FlaUI's own `ConnectionTimeout`/`TransactionTimeout` are nested just below it so a frozen
-provider's COM call usually self-aborts and returns an error *before* the watchdog has to act.
+the gate. Each op runs under a wall-clock watchdog (`flaui:operationTimeout`, default 300s);
+FlaUI's own `ConnectionTimeout`/`TransactionTimeout` are nested just below it (opTimeout−5s,
+floor 1s; no independent cap) so a frozen provider's COM call usually self-aborts and returns
+an error *before* the watchdog has to act.
 When it doesn't, the watchdog poisons the worker (abandons the frozen STA thread, starts a
 fresh one) so the session keeps moving; runaway poisoning escalates to a fatal signal that the
 TypeScript side turns into a full sidecar recycle. PowerShell ops are the one exception — they

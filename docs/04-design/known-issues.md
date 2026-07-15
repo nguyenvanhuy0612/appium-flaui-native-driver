@@ -18,9 +18,11 @@ with instrumentation is needed.
 The real fix is to make a frozen op reliably hit the watchdog → poison/replace the STA worker → only that op
 fails (`"timeout"`), the session survives, the queue drains on the fresh worker.
 
-**Current guaranteed bound:** the TS **hard-deadline (40s)** always settles the op and then C fails the
-session honestly (`NoSuchDriverError`), so the queue can never wedge indefinitely. Full failure-mode table and
-the layer design: [stability — failure modes](../02-architecture/stability.md#failure-modes--expected-vs-the-2026-06-04-incident).
+**Current guaranteed bound:** the TS **hard-deadline (L4, `operationTimeout+10s` — 310s at defaults)**
+always settles the op and then C fails the session honestly (`NoSuchDriverError`), so the queue can never
+wedge indefinitely. Values: [stability — timeout reference](../02-architecture/stability.md#timeout-reference).
+Full failure-mode table and the layer design:
+[stability — failure modes](../02-architecture/stability.md#failure-modes--expected-vs-the-2026-06-04-incident).
 
 ### Item F — concurrency cap + stray-process reaper (optional / future)
 
@@ -38,7 +40,7 @@ real mouse+keyboard input, conditions + all four tree scopes, capture, clipboard
 
 | # | Item | Why it matters | Task |
 |---|---|---|---|
-| 1 | Page source via **CachedChildren navigation** | source is a live per-node walk → ~13s on a desktop-root tree (~1MB). NOTE: a property-only CacheRequest was tried (beta.22) and **reverted — no speedup**; the cost is the per-node `FindAllChildren` navigation, not the property reads. The real fix is one `FindAll(TreeScope.Subtree, cacheRequest)` then walking `.CachedChildren` (no per-node FindAllChildren). | #3 |
+| 1 | Page source via **CachedChildren navigation** | source is a live per-node walk → ~13s on a desktop-root tree (~1MB). NOTE: a property-only CacheRequest was tried (beta.22) and **reverted — no speedup**; the cost is the per-node `FindAllChildren` navigation, not the property reads. The real fix is one `FindAll(TreeScope.Subtree, cacheRequest)` then walking `.CachedChildren` (no per-node FindAllChildren). (Contrast: the **find path** DOES use a property-only CacheRequest since 2026-07-10 — there the per-element property reads ARE the cost, and live reads on a churning tree caused `UIA_E_TIMEOUT` 0x80131505; see `OpInterpreter.Find`.) | #3 |
 | 2 | **RangeValue.SetValue** | sliders / spinners / progress are read-only today — a real functional gap | #4 |
 | 3 | **VirtualizedItem.Realize** + **ItemContainer.FindItemByProperty** | long virtualized lists/grids can miss off-screen items | #5 |
 | 4 | **RawView / ContentView** walkers | the `rawView` source flag is accepted but ignored; content view = more concise source (also helps perf) | #6 |

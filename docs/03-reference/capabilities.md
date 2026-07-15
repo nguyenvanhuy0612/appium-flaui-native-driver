@@ -1,6 +1,6 @@
 # Capabilities — session reference
 
-*Reference · updated 2026-06-05*
+*Reference · updated 2026-07-15*
 
 > Complete list of every capability the FlaUINative driver accepts, defined in code by the
 > `constraints` object in [`lib/driver.ts`](../../lib/driver.ts) — the single source of truth for
@@ -65,7 +65,7 @@ If none resolves within `createSessionTimeout`, session creation fails.
 | `flaui:backend` | string | `uia3` | UIA backend: `uia3` or `uia2`. uia2 is experimental — the layer-1 UIA timeouts don't apply under it (UIA3-only property surface). |
 | `flaui:connectionTimeout` | number (ms) | derived | UIA `ConnectionTimeout`. UIA3 only. Nested below the watchdog — see [stability](../02-architecture/stability.md). |
 | `flaui:transactionTimeout` | number (ms) | derived | UIA `TransactionTimeout`. UIA3 only. Nested below the watchdog — see [stability](../02-architecture/stability.md). |
-| `flaui:operationTimeout` | number (ms) | `30000` | Per-op watchdog. Also sets the per-op RPC client timeout (`+grace`) — see [stability](../02-architecture/stability.md). |
+| `flaui:operationTimeout` | number (ms) | `300000` | Per-op watchdog — the single knob the whole nested timeout chain derives from (UIA = op−5s, RPC = op+5s). Also sets the per-op RPC client timeout (`+grace`) — see [stability](../02-architecture/stability.md). |
 | `flaui:elementTableMax` | number | `10000` | Element registry cap in the sidecar. |
 | `flaui:idleTimeout` | number (ms) | `newCommandTimeout + 120000` | Sidecar idle self-exit (orphan guard). `newCommandTimeout: 0` disables it; override only for power users — see [stability](../02-architecture/stability.md). |
 | `flaui:autoRecycle` | boolean | `false` | Opt-in silent sidecar recycle + re-attach on transport failure. When off, a dead/wedged sidecar fails the session (`invalid session id`). |
@@ -85,4 +85,4 @@ The standard appium-windows-driver caps the driver honours, plus a few advisory 
 | `prerun` | object | — | `{script}`/`{command}` PowerShell run at session start. Gated by the `flauinative:power_shell` insecure feature. |
 | `postrun` | object | — | `{script}`/`{command}` PowerShell run at session teardown. Gated by the `flauinative:power_shell` insecure feature. |
 
-> **PowerShell timeout:** there is no `powerShellCommandTimeout` capability. Each `execute('powershell', [{script|command, timeout?}])` call takes a per-call `timeout` (ms, default **60000**); PowerShell runs out-of-scheduler, so `flaui:operationTimeout` does not bound it.
+> **PowerShell timeout:** there is no `powerShellCommandTimeout` capability. Each `execute('powershell', [{script|command, timeout?}])` call takes a per-call `timeout` (ms, default **300000**); on expiry the sidecar kills the whole process tree. PowerShell runs out-of-scheduler, so `flaui:operationTimeout` does not bound it — see the [timeout reference](../02-architecture/stability.md#timeout-reference) (axis C). `prerun`/`postrun` use the same default.

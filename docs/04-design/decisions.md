@@ -426,3 +426,40 @@ stuck Ctrl/Shift/Alt would corrupt every later command, so this is unconditional
 work via send_keys. The W3C Actions path (explicit `keyDown`/`keyUp` → `keys` op Press/Release) is unchanged —
 it already gives the caller full control for cross-op held modifiers. The normal (no-modifier) text path is
 byte-for-byte unchanged.
+
+---
+
+## ADR-021 — One timeout knob per AXIS; PowerShell per-call default 60s → 300s
+
+**Decision (2026-07-15):** Consolidate every timeout in the driver around **one reference knob per axis**;
+everything else on an axis is *derived* (fixed offsets) or a narrow local override. The four axes and their
+knobs (full inventory + diagram:
+[stability — timeout reference](../02-architecture/stability.md#timeout-reference)):
+
+- **Execution** — `flaui:operationTimeout` (default **300 000 ms**). The nested chain derives from it:
+  L1 UIA Connection/Transaction = op−5s (`OpLogic.UiaDefault`, floor 1s, **no upper cap** — the old
+  independent 20s cap aborted long-but-legitimate UIA transactions with `UIA_E_TIMEOUT`);
+  L2 sidecar watchdog = op; L3 TS RPC abort = op+5s; L4 TS hard backstop = L3+5s. Invariant L1<L2<L3<L4
+  holds by construction. (Supersedes the beta.15 values in ADR-era docs: op default was 30s and L1 was
+  `min(20s, op−5s)`.)
+- **Session setup** — `appium:createSessionTimeout` (default 60 000 ms) with `ms:waitForAppLaunch`
+  (rootWait = max(cap, 10s)); the sidecar setup watchdog and the TS `/session` RPC budget derive from
+  them, deliberately **not** from `operationTimeout` (P0-1).
+- **PowerShell** — per-call `timeout` on the `powershell` op, **default raised 60 000 → 300 000 ms**
+  (`DEFAULT_POWERSHELL_TIMEOUT_MS` in `lib/backend/timeouts.ts`, matched by `Program.cs RunPowerShell`).
+  Supersedes the 60 000 ms default recorded in ADR-016 (and ADR-014's F4 note); the per-call-not-capability
+  decision itself is unchanged.
+- **Idle / lifecycle** — `appium:newCommandTimeout`; the sidecar idle self-exit derives from it
+  (`+120s`, `0` disables), per beta.15's item E.
+
+**Why:** A single knob per axis makes the nesting invariants impossible to misconfigure (derived offsets
+can't be ordered wrong) while keeping the axes independent — they measure different things (one command's
+runtime vs session-setup time vs script runtime vs idle time), so deriving one from another would couple
+unrelated budgets. The PowerShell default moved to the same 300s scale as the execution axis because a
+slow-host `prerun`/`postrun` (e.g. installing or launching a product under test) was being killed at 60s
+mid-flight — with the process tree it had spawned.
+
+**Consequences:** Callers wanting a shorter PowerShell bound pass the per-call `timeout` explicitly.
+`flaui:connectionTimeout`/`flaui:transactionTimeout` remain advanced overrides for pinning L1 separately.
+All timeout values now live in one place
+([stability — timeout reference](../02-architecture/stability.md#timeout-reference)); other docs link there.

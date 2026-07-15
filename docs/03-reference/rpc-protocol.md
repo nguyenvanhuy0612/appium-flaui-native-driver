@@ -52,7 +52,7 @@ session honestly (see [stability](../02-architecture/stability.md)).
 
 | `error.type` | Raised by (C# exception) | Maps to W3C error |
 |---|---|---|
-| `timeout` | `TimeoutException`; PowerShell timeout | `TimeoutError` |
+| `timeout` | `TimeoutException`; any exception with HResult `0x80131505` (COR_E_TIMEOUT / UIA_E_TIMEOUT, e.g. a UIA `COMException` on a slow provider); PowerShell timeout | `TimeoutError` |
 | `stale element reference` | `StaleElementException` | `StaleElementReferenceError` |
 | `no such element` | `ElementNotFoundException` | `NoSuchElementError` |
 | `invalid selector` | `ArgumentException` | `InvalidSelectorError` |
@@ -199,14 +199,15 @@ err: invalid argument
 
 ### `powershell`  (insecure feature; runs OUT of the scheduler with its own timeout)
 ```jsonc
-→ { "op":"powershell", "script":"…", "timeoutMs":60000? }
+→ { "op":"powershell", "script":"…", "timeoutMs":300000? }
 ← { "stdout":"…", "stderr":"…", "exitCode":0 }
 err: timeout (process tree killed) · unknown error
 ```
 
 > PowerShell deliberately bypasses the STA scheduler and the per-op watchdog — it has its own child
-> process and timeout (per-call `timeout`, default 60s), so it is **not** bounded by
-> `flaui:operationTimeout`. See [stability](../02-architecture/stability.md).
+> process and timeout (per-call `timeout`, default 300 000 ms), so it is **not** bounded by
+> `flaui:operationTimeout`. See the
+> [timeout reference](../02-architecture/stability.md#timeout-reference) (axis C).
 
 ## Worked example
 

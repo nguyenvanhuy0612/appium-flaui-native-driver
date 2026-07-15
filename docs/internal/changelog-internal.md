@@ -1,11 +1,33 @@
 # Internal Changelog — "what we did and why"
 
-*Internal · maintainer work log · updated 2026-06-04*
+*Internal · maintainer work log · updated 2026-07-15*
 
 A running log of work sessions, written so anyone (incl. a "not very familiar" reader) can follow the
 project's evolution. Newest first.
 
 ---
+
+## 2026-07-15 — docs: consolidated "Timeout reference" (one knob per axis) + PowerShell default 60s → 300s
+
+Docs-only session, alongside the code change raising the PowerShell per-call default to 300 000 ms
+(`DEFAULT_POWERSHELL_TIMEOUT_MS` in `lib/backend/timeouts.ts` / `driver.rpcTimeoutFor`, matched by
+`Program.cs RunPowerShell`).
+
+- **`stability.md` — new "Timeout reference" section** replacing the old flat "Timeouts (defaults)" table:
+  a full inventory of every timeout knob grouped by **axis** (A execution / B session-setup / C PowerShell /
+  D idle-lifecycle), an ASCII diagram of the whole timeout logic, and the design rationale (**one reference
+  knob per axis**; derived offsets make the L1<L2<L3<L4 invariant hold by construction; axes deliberately
+  not merged because they measure different things). Every value was verified against
+  `lib/backend/timeouts.ts`, `sidecar/OpLogic.cs` (`UiaDefault`, `SessionSetupTimeout`,
+  `CreateSessionTimeout`), `sidecar/Program.cs`, `sidecar/UiaScheduler.cs`, and `lib/driver.ts`.
+- **Stale values fixed** (docs said 60s PowerShell / old 40s hard-deadline): `capabilities.md`,
+  `README.md` (note + Python example), `rpc-protocol.md`, `security.md` (×2), and
+  `known-issues.md` item B ("hard-deadline (40s)" → L4 = operationTimeout+10s, 310s at defaults — a
+  leftover from the 30s-operationTimeout era). All now link to the timeout reference instead of restating.
+- **ADR-021 appended** to `decisions.md`: records the per-axis consolidation and the PowerShell
+  60s → 300s default (supersedes the 60 000 ms recorded in ADR-016 / ADR-014-F4 without rewriting them).
+- Also in `stability.md`: end-state diagram "idle 5 min" corrected to `newCommandTimeout+120s`; the
+  Reference section now lists `timeouts.ts` + `OpLogic.cs` and fixes the changelog link.
 
 ## 2026-06-04 — v0.1.0-beta.15: stability hardening — sidecar-death fail-fast (C), nested timeouts (D), idle self-exit (E)
 

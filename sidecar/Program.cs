@@ -25,7 +25,10 @@ var attached = false;              // true when we attached to a PRE-EXISTING ap
 var shouldCloseApp = true;
 var forceQuit = false;            // ms:forcequit — kill instead of graceful close (F10)
 string? appPath = null;            // remembered for `windows: launchApp`
-var opTimeout = TimeSpan.FromSeconds(30); // per-op watchdog (flaui:operationTimeout, F5)
+// Per-op watchdog (flaui:operationTimeout, F5). Default 300s — MUST match the TS side's
+// DEFAULT_OPERATION_TIMEOUT_MS (lib/backend/timeouts.ts): the whole L1<L2<L3<L4 anti-hang stack derives
+// from this one knob (L1 UIA = op-5s via OpLogic.UiaDefault, L3 RPC = op+5s, L4 backstop = L3+5s).
+var opTimeout = TimeSpan.FromSeconds(300);
 
 // E — orphan guard: self-exit after this much inactivity, independent of the parent heartbeat. Bounds
 // leaked sidecars when clients open sessions and never close them. Default 5 min; ≤0 disables. Set from
@@ -60,11 +63,12 @@ app.MapPost("/session", async (HttpRequest req) =>
     var backend = caps.TryGetProperty("backend", out var b) ? b.GetString() : "uia3";
     automation = backend == "uia2" ? new UIA2Automation() : new UIA3Automation();
     // per-op watchdog (flaui:operationTimeout, F5). Read FIRST so the UIA timeouts can nest below it.
-    opTimeout = Ms(caps, "operationTimeout") ?? TimeSpan.FromSeconds(30);
+    opTimeout = Ms(caps, "operationTimeout") ?? TimeSpan.FromSeconds(300);
     // anti-hang layer 1 — UIA-level timeouts (flaui:connectionTimeout / flaui:transactionTimeout, F5).
-    // D (nested timeouts): default these just BELOW the watchdog so a frozen provider's COM call
-    // self-aborts and returns an error *before* the watchdog has to poison the STA worker (the graceful
-    // path). Capped at 20s but always ≤ opTimeout-5s so the nesting holds even for a small operationTimeout.
+    // D (nested timeouts): default these just BELOW the watchdog (opTimeout-5s, floored at 1s) so a frozen
+    // provider's COM call self-aborts and returns an error *before* the watchdog has to poison the STA
+    // worker (the graceful path). Single knob: no independent cap — the explicit caps below remain the
+    // advanced override for pinning L1 separately.
     var uiaDefault = OpLogic.UiaDefault(opTimeout);
     automation.ConnectionTimeout = Ms(caps, "connectionTimeout") ?? uiaDefault;
     automation.TransactionTimeout = Ms(caps, "transactionTimeout") ?? uiaDefault;
@@ -90,7 +94,7 @@ app.MapPost("/session", async (HttpRequest req) =>
         caps.TryGetProperty("createSessionTimeout", out var cstEl) && cstEl.ValueKind == JsonValueKind.Number
             ? cstEl.GetDouble() : (double?)null);
     // P0-1 — /session setup runs far longer than a per-op: give the watchdog a budget that covers the full
-    // attach poll + window-surface waits instead of the 30s per-op default (which would poison the worker on
+    // attach poll + window-surface waits instead of the per-op default (which would poison the worker on
     // a slow attach/launch). The TS RPC timeout (driver.ts) sits above this in turn.
     var setupTimeout = OpLogic.SessionSetupTimeout(attachBudget, rootWait);
 
@@ -408,13 +412,15 @@ object HandleApp(JsonElement op)
 // PowerShell child process, BOUNDED (F4): stdin write + stdout/stderr reads run concurrently to avoid the
 // redirect-pipe deadlock (a child filling its stdout pipe blocks until the parent drains it); the whole
 // thing is under a CancellationTokenSource so a runaway script is killed (entire process tree) and mapped
-// to a W3C "timeout" error. Timeout = the per-call op.timeoutMs when present, else a 60s default.
+// to a W3C "timeout" error. Timeout = the per-call op.timeoutMs when present, else a 300s default —
+// MUST match the TS side's DEFAULT_POWERSHELL_TIMEOUT_MS (lib/backend/timeouts.ts): the TS RPC timeout
+// sits a grace above this, and the same 300s scale as operationTimeout keeps slow-host preruns alive.
 async Task<IResult> RunPowerShell(JsonElement op)
 {
     System.Threading.Interlocked.Increment(ref inFlight); // P0-2 — block idle self-exit while a script runs
     var timeout = op.TryGetProperty("timeoutMs", out var tm) && tm.ValueKind == JsonValueKind.Number
         ? TimeSpan.FromMilliseconds(tm.GetDouble())
-        : TimeSpan.FromSeconds(60);
+        : TimeSpan.FromSeconds(300);
     using var cts = new CancellationTokenSource(timeout);
     System.Diagnostics.Process? p = null;
     try
@@ -491,6 +497,11 @@ async Task<IResult> RunOp(Func<object?> work, TimeSpan? timeoutOverride = null)
     catch (InvalidElementStateException ex) { return Err("invalid element state", ex.Message); } // W3C §12.5.2 (TS maps to InvalidElementStateError)
     catch (InvalidArgumentException ex) { return Err("invalid argument", ex.Message); }
     catch (ArgumentException ex) { return Err("invalid selector", ex.Message); }
+    // COR_E_TIMEOUT / UIA_E_TIMEOUT (0x80131505): UIA itself timed out on a slow/churning provider — a
+    // W3C "timeout", not "unknown error". Placed AFTER the typed catches (order-safe: the sidecar's own
+    // exception types carry COR_E_EXCEPTION, never this code) and BEFORE the generic fallback. Keep in
+    // sync with OpLogic.ClassifyError (the unit-testable mirror of this table).
+    catch (Exception ex) when (ex.HResult == unchecked((int)0x80131505)) { return Err("timeout", ex.Message); }
     catch (Exception ex) { return Err("unknown error", ex.Message); }
     finally { System.Threading.Interlocked.Decrement(ref inFlight); Touch(); }
 }
