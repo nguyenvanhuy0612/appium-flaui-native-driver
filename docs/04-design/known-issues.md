@@ -50,6 +50,33 @@ Niche / nice-to-have (not tracked as tasks): Scroll-pattern action, Text selecti
 actions, MultipleView, Dock `SetDockPosition`, Transform.Rotate/Zoom, Touch gestures, Store-app launch by
 AUMID, multi-monitor `Capture`, `DrawHighlight`. Screen recording is out of scope (ADR-012).
 
+## Dropdown / ComboBox page-source parity (PENDING FIX)
+
+flaui page source does **not** include a ComboBox's child ListItems while the dropdown is CLOSED; the nova
+(NovaWindows2) driver does. Desired: parity — surface the collapsed items, always-on (no new capability),
+by reading the tree the way nova does (Control View walk, **no real expand**).
+
+**Verified 2026-07-09** on host `172.16.10.37` (both drivers via `--source=npm`) using Character Map
+`charmap.exe`, Font ComboBox, dropdown CLOSED:
+- flaui: ComboBox exposes only `<Text>` + `<Button AutomationId="DropDown">` — **0 List, 0 ListItem**.
+- nova: ComboBox contains `<List ClassName="ComboLBox" AutomationId="ListBox" IsOffscreen="True">` with
+  **146 `<ListItem>`** (Arial, Arial Black, Bahnschrift, …).
+
+**Root cause (pinned):** the dropdown listbox is a *separate* HWND (window class `ComboLBox`) that UIA nests
+under the ComboBox **only in the Control view**. nova recurses `FindAll(Children, ControlViewCondition)` so it
+appears; flaui `sidecar/PageSourceBuilder.cs` walks children via FlaUI `FindAllChildren()` (raw / TrueCondition)
+in `PushChildrenReversed`, so the `ComboLBox` is not a child there. Same reason the `rawView` flag is a no-op
+(see capability-gap #4 above) — the builder never uses a Control-view walker.
+
+**Fix (not yet implemented):** switch `PageSourceBuilder`'s child enumeration from `FindAllChildren()` to a
+**Control-view `TreeWalker`** (sidecar already has `GetControlViewWalker()`); wire the `rawView` flag to select
+Raw vs Control walker. No expand, no `IsOffscreen` filtering. This closes both this parity gap and gap #4.
+
+**Blocked on:** a working local-code deploy — `--source=local` is broken since `3ce589f`
+(`docs/05-operations/`), so an unreleased build can't be pushed to a test host to verify the fix. Decide a
+deploy method before shipping. Full context: `docs/internal/2026-07-09-session-handoff.md`, memory
+`dropdown-pagesource-parity`.
+
 ## Pattern-command verification (beta)
 
 The six `windows:` pattern verbs without prior e2e coverage were spot-checked on beta.16 against a WinForms
